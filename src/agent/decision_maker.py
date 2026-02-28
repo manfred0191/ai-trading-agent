@@ -34,8 +34,7 @@ Regeln, an die du dich 100 % hältst:
 - Check alle 15 Minuten.
 - Nutze TAAPI-Indikatoren auf 15m: EMA9/EMA21 Crossover bullish, RSI14 > 55 (besser >60), MACD-Histogramm steigend und über Null, Volume-Surge, Price über recent high oder VWAP.
 - Nur Longs bei starkem Momentum (keine Shorts, es sei denn extrem klares Setup).
-- Position: maximal 5 % des aktuellen Balances pro Trade.
-- Stop-Loss immer 1–2.5 %, Take-Profit 4–10 % oder trailing.
+- Position: maximal 20 % des aktuellen Balances pro Trade.
 - Kein Gambling – nur high-probability Setups mit klarem Edge (mind. 2–3 konfluente Signale).
 - Wenn nichts Gutes da ist → HOLD und warte geduldig.
 - Sei extrem selektiv: Lieber 0–1 Trade pro Tag als schlechte Trades.
