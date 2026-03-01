@@ -27,18 +27,14 @@ class TradingAgent:
     """Trading agent focused on momentum trades for volatile altcoins."""
 
     def __init__(self):
-        """Initialize LLM client – TAAPI komplett deaktiviert."""
         self.model = CONFIG["llm_model"]
-        self.api_key = CONFIG["openrouter_api_key"]  # jetzt Groq-Key
+        self.api_key = CONFIG["openrouter_api_key"]
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
 
     def decide_trade(self, assets, context):
-        """Entscheidet + führt sofort aus."""
         decision = self._decide(context, assets=assets)
-
         if decision.get("trade_decisions"):
             self._execute_trades(decision)
-
         return decision
 
     def _execute_trades(self, decision: dict):
@@ -48,21 +44,13 @@ class TradingAgent:
             return
 
         # Sicherheitsbremse
-        dry_run = os.getenv("DRY_RUN", "true").lower() in ("true", "1", "yes")
-        if dry_run:
-            logging.warning("DRY_RUN ist aktiv → KEINE echten Orders werden gesendet")
+        if os.getenv("DRY_RUN", "true").lower() in ("true", "1", "yes"):
+            logging.warning("DRY_RUN aktiv → KEINE echten Orders!")
             for trade in decisions:
-                logging.info(f"[DRY-RUN] Würde ausführen: {trade}")
+                logging.info(f"[DRY] Würde ausführen: {trade}")
             return
 
-        hl_env = os.getenv("HYPERLIQUID_ENVIRONMENT")
-        if hl_env is None:
-            logging.error("HYPERLIQUID_ENVIRONMENT nicht gesetzt → Abbruch")
-            return
-        if hl_env not in ("mainnet", "testnet"):
-            logging.error(f"Ungültiger Wert für HYPERLIQUID_ENVIRONMENT: {hl_env}")
-            return
-
+        hl_env = os.getenv("HYPERLIQUID_ENVIRONMENT", "mainnet")
         base_url = constants.TESTNET_API_URL if hl_env == "testnet" else constants.MAINNET_API_URL
 
         private_key = os.getenv("HYPERLIQUID_PRIVATE_KEY")
@@ -76,9 +64,9 @@ class TradingAgent:
             private_key = "0x" + private_key
 
         try:
-            wallet: LocalAccount = Account.from_key(private_key)
+            wallet = Account.from_key(private_key)
         except ValueError as e:
-            logging.error(f"Ungültiger HYPERLIQUID_PRIVATE_KEY: {e}")
+            logging.error(f"Ungültiger Private Key: {e}")
             return
 
         if not account_address:
@@ -88,14 +76,10 @@ class TradingAgent:
         logging.info(f"Verwendete Account-Adresse: {account_address}")
 
         try:
-            exchange = Exchange(
-                wallet,
-                base_url=base_url,
-                account_address=account_address
-            )
+            exchange = Exchange(wallet, base_url=base_url, account_address=account_address)
             logging.info(f"Hyperliquid Exchange initialisiert ({hl_env})")
         except Exception as e:
-            logging.error(f"Fehler beim Initialisieren von Exchange: {e}")
+            logging.error(f"Exchange-Initialisierung fehlgeschlagen: {e}")
             return
 
         for trade in decisions:
@@ -109,57 +93,37 @@ class TradingAgent:
             leverage = int(trade.get("leverage", 5))
 
             try:
-                # Leverage setzen
                 exchange.update_leverage(leverage, symbol)
 
-                # Preis holen
                 info = Info(base_url, skip_ws=True)
                 mids = info.all_mids()
                 price = float(mids.get(symbol, "0"))
                 if price <= 0:
-                    logging.error(f"Kein Preis verfügbar für {symbol}")
+                    logging.error(f"Kein Preis für {symbol}")
                     continue
 
-                # Balance holen (Perps)
                 user_state = info.user_state(account_address)
                 usdc = float(user_state.get("marginSummary", {}).get("accountValue", "0"))
-
                 if usdc <= 0:
                     logging.error("Kein USDC-Balance verfügbar")
                     continue
 
                 usdc_to_use = usdc * size_pct
-                usdc_to_use = min(usdc_to_use, 10.0)  # Sicherheits-Cap
+                usdc_to_use = min(usdc_to_use, 10.0)          # Sicherheits-Cap
 
                 sz_raw = usdc_to_use / price
 
-                # Präzision holen
-                decimals = 8
-                try:
-                    meta = info.meta()
-                    universe = meta.get("universe", [])
-                    asset_info = next((u for u in universe if u.get("name") == symbol), None)
-                    if asset_info:
-                        decimals = asset_info.get("szDecimals", 8)
-                        logging.debug(f"{symbol} → szDecimals = {decimals}")
-                except Exception as e:
-                    logging.warning(f"Meta-Fehler für szDecimals: {e} → fallback 8 Dezimalen")
+                # === SAUBERE RUNDUNG ===
+                sz = round(sz_raw, 8)                         # Standard für die meisten Assets
 
-                sz = round(sz_raw, decimals)
-
-                # Mindestgröße
+                # Mindestgröße-Check
                 min_sz = 0.001 if symbol in ["ETH", "BTC", "SOL"] else 0.01
                 if sz < min_sz:
-                    logging.warning(f"Größe zu klein ({sz:.8f} < {min_sz}) für {symbol} → überspringe")
+                    logging.warning(f"Größe zu klein ({sz:.8f}) für {symbol} → überspringe")
                     continue
 
-                logging.info(
-                    f"Trade-Plan: {action} {symbol} | "
-                    f"raw_sz = {sz_raw:.8f} | rounded_sz = {sz:.8f} | "
-                    f"price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f} | lev {leverage}"
-                )
+                logging.info(f"Trade-Plan: {action} {symbol} | sz = {sz:.8f} | price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f}")
 
-                # Order senden
                 order_result = exchange.market_open(
                     name=symbol,
                     is_buy=is_buy,
@@ -178,7 +142,6 @@ class TradingAgent:
                 logging.exception(f"Fehler bei {symbol}: {str(e)}")
 
     def _decide(self, context, assets):
-        """Send request to LLM and parse decision."""
         system_prompt = """Du bist der smarteste, disziplinierteste und profitabelste Crypto-Trader der Welt. 
 Dein einziger Job ist es, auf Hyperliquid möglichst viel Geld zu verdienen.
 
@@ -215,8 +178,7 @@ Antworte NUR im exakten JSON-Format – nichts anderes:
 Test-Modus (nur für diesen einen Durchlauf gültig):
 Für diesen Prompt gilt eine Ausnahme: Auch wenn die Datenlage dünn ist und normalerweise HOLD die richtige Entscheidung wäre,
 darfst du JETZT aus Testzwecken mindestens einen Trade vorschlagen.
-Wähle dafür das Asset, das am ehesten Momentum-potenzial hat (z. B. höchster Funding-Rate positiv, höchste OI-Veränderung, höchster Preis in den letzten Bewegungen, …)
-und mache einen kleinen Long-Trade (max 5–10 % Größe, max 3–5× Leverage).
+Wähle dafür das Asset, das am ehesten Momentum-potenzial hat und mache einen kleinen Long-Trade (max 5–10 % Größe, max 3–5× Leverage).
 Schreibe in reasoning explizit dazu, dass dies ein Test-Trade ist.
 Nach diesem Test kehren die normalen strengen Regeln sofort wieder.
 
@@ -224,11 +186,9 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
             current_time=datetime.utcnow().isoformat()
         )
 
-        user_prompt = context
-
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
+            {"role": "user", "content": context},
         ]
 
         headers = {
@@ -245,25 +205,15 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
         }
 
         try:
-            logging.info(f"Full LLM endpoint URL (repr): {repr(self.base_url)}")
-            logging.info(f"Using model: {self.model}")
-            logging.info(f"API key prefix: {self.api_key[:10]}...")
-
             resp = requests.post(self.base_url, headers=headers, json=payload, timeout=60)
             resp.raise_for_status()
-            resp_json = resp.json()
-            message = resp_json["choices"][0]["message"]
+            content = resp.json()["choices"][0]["message"]["content"]
 
-            content = message.get("content") or "{}"
-            try:
-                parsed = json.loads(content)
-                if "trade_decisions" not in parsed:
-                    parsed = {"reasoning": "Parse-Fehler – ungültiges Format", "trade_decisions": []}
-            except json.JSONDecodeError:
-                parsed = {"reasoning": f"JSON Parse Error: {content[:200]}...", "trade_decisions": []}
-
+            parsed = json.loads(content)
+            if "trade_decisions" not in parsed:
+                parsed = {"reasoning": "Parse-Fehler", "trade_decisions": []}
             return parsed
 
         except Exception as e:
             logging.error(f"LLM decision failed: {str(e)}")
-            return {"reasoning": f"Error during decision: {str(e)}", "trade_decisions": []}
+            return {"reasoning": f"Error: {str(e)}", "trade_decisions": []}
