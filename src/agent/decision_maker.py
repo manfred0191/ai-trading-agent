@@ -18,8 +18,10 @@ class TradingAgent:
         # base = CONFIG["openrouter_base_url"]         # https://api.groq.com/openai/v1
         # self.base_url = f"{base}/chat/completions"
         self.taapi = TAAPIClient()
-        base = CONFIG["openrouter_base_url"].rstrip('/') + '/'   # sicherstellen, dass base mit / endet
-        self.base_url = urljoin(base, "chat/completions")
+        self.base_url = "https://api.groq.com/openai/v1/chat/completions"
+        # Kommentiere die CONFIG-Zeilen aus
+        # base = CONFIG["openrouter_base_url"].rstrip('/') + '/'   # sicherstellen, dass base mit / endet
+        # self.base_url = urljoin(base, "chat/completions")
     
     def decide_trade(self, assets, context):
         """Decide for multiple assets in one LLM call."""
@@ -100,6 +102,9 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
         }
 
         try:
+            logging.info(f"Full LLM endpoint URL: {self.base_url!r}")   # !r zeigt unsichtbare Zeichen wie \n
+            logging.info(f"Using model: {self.model}")
+            logging.info(f"API key prefix: {self.api_key[:10]}...")    # nur zum Check, ob Key da ist
             resp = requests.post(self.base_url, headers=headers, json=payload, timeout=60)
             resp.raise_for_status()
             resp_json = resp.json()
