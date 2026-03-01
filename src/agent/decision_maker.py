@@ -118,6 +118,20 @@ class TradingAgent:
 
                 # Preis + Balance holen
                 info = Info(base_url, skip_ws=True)
+                # Asset-Präzision aus Meta holen (falls verfügbar)
+                try:
+                    meta = info.meta()
+                    universe = meta.get("universe", [])
+                    asset_info = next((u for u in universe if u.get("name") == symbol), None)
+                    if asset_info:
+                        decimals = asset_info.get("szDecimals", 8)
+                        sz = round(usdc_to_use / price, decimals)
+                        logging.info(f"{symbol} szDecimals = {decimals} → gerundet auf {sz:.8f}")
+                    else:
+                        sz = round(usdc_to_use / price, 8)  # Fallback
+                except Exception as meta_err:
+                    logging.warning(f"Konnte szDecimals nicht holen: {meta_err} → fallback auf 8 Dezimalen")
+                    sz = round(usdc_to_use / price, 8)                
                 mids = info.all_mids()
                 price = float(mids.get(symbol, "0"))
                 if price <= 0:
@@ -158,10 +172,11 @@ class TradingAgent:
                 usdc_to_use = min(usdc_to_use, max_usdc_risk)
                 sz = usdc_to_use / price
 
-                if sz < 0.001:  # Mindestgröße – anpassen je nach Asset
-                    logging.warning(f"Zu kleine Größe für {symbol} → überspringe")
-                    continue                
-
+                min_sz = 0.001 if symbol in ["ETH", "BTC"] else 0.01
+                if sz < min_sz:
+                    logging.warning(f"Größe {sz:.8f} unter Minimum ({min_sz}) für {symbol} → überspringe")
+                    continue
+    
                 logging.info(f"Trade-Plan: {action} {symbol} | sz ≈ {sz:.6f} | price ≈ {price} | lev {leverage}")
 
                 # Market Order senden
