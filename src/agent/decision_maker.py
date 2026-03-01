@@ -24,8 +24,36 @@ class TradingAgent:
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
 
     def decide_trade(self, assets, context):
-        """Decide for multiple assets in one LLM call."""
-        return self._decide(context, assets=assets)
+        """Entscheidet + führt sofort aus (Original-Repo Flow)"""
+        decision = self._decide(context, assets=assets)   # dein bestehender LLM-Code
+        
+        # ← NEU: echte Ausführung
+        if decision.get("trade_decisions"):
+            self._execute_trades(decision)
+        
+        return decision
+
+    def _execute_trades(self, decision: dict):
+        """Verwendet die originale hyperliquid_api.py aus dem Repo"""
+        from src.trading.hyperliquid_api import HyperliquidAPI   # Original-Import
+
+        if os.getenv("DRY_RUN", "false").lower() == "true":
+            logging.warning("🔒 DRY-RUN Modus aktiv – keine echten Orders!")
+            return
+        
+        decisions = decision.get("trade_decisions", [])
+        if not decisions:
+            logging.info("🟡 Keine Trades vorgeschlagen → HOLD")
+            return
+
+        logging.info(f"🚀 Führe {len(decisions)} Trade(s) aus...")
+
+        try:
+            hl = HyperliquidAPI()   # liest automatisch aus CONFIG / env
+            hl.execute(decision)    # Original-Methode des Repos
+            logging.info("✅ Trades erfolgreich an Hyperliquid gesendet")
+        except Exception as e:
+            logging.error(f"❌ Ausführungsfehler: {e}")
 
     def _decide(self, context, assets):
         """Send request to LLM and parse decision."""
