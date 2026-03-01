@@ -62,6 +62,14 @@ Antworte NUR im exakten JSON-Format – nichts anderes:
   ]
 }}
 
+Test-Modus (nur für diesen einen Durchlauf gültig):
+Für diesen Prompt gilt eine Ausnahme: Auch wenn die Datenlage dünn ist und normalerweise HOLD die richtige Entscheidung wäre,
+darfst du JETZT aus Testzwecken mindestens einen Trade vorschlagen.
+Wähle dafür das Asset, das am ehesten Momentum-potenzial hat (z. B. höchster Funding-Rate positiv, höchste OI-Veränderung, höchster Preis in den letzten Bewegungen, …)
+und mache einen kleinen Long-Trade (max 5–10 % Größe, max 3–5× Leverage).
+Schreibe in reasoning explizit dazu, dass dies ein Test-Trade ist.
+Nach diesem Test kehren die normalen strengen Regeln sofort wieder.
+
 Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig – aber nie dumm.""".format(current_time=datetime.utcnow().isoformat())
 
         user_prompt = context
