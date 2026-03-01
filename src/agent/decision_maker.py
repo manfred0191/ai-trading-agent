@@ -1,4 +1,5 @@
 """Decision-making agent for momentum trading on volatile altcoins."""
+import os
 import logging
 import http.client as http_client
 http_client.HTTPConnection.debuglevel = 1
