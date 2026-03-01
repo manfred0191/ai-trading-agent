@@ -125,6 +125,9 @@ class TradingAgent:
                     continue
 
                 user_state = info.user_state(account_address)
+                logging.info("=== DEBUG: Vollständiger user_state vom Hyperliquid ===")
+                logging.info(json.dumps(user_state, indent=2))
+                logging.info("=== ENDE DEBUG ===")
                 usdc = float(user_state.get("marginSummary", {}).get("accountValue", "0"))
                 if usdc <= 0:
                     logging.error("Kein USDC-Balance verfügbar")
