@@ -1,5 +1,12 @@
 """Decision-making agent for momentum trading on volatile altcoins."""
-
+import logging
+import http.client as http_client
+http_client.HTTPConnection.debuglevel = 1
+logging.basicConfig()
+logging.getLogger().setLevel(logging.DEBUG)
+requests_log = logging.getLogger("requests.packages.urllib3")
+requests_log.setLevel(logging.DEBUG)
+requests_log.propagate = True
 import requests
 import json
 import logging
@@ -106,7 +113,9 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
         }
 
         try:
-            logging.info(f"Full LLM endpoint URL: {self.base_url!r}")   # !r zeigt unsichtbare Zeichen wie \n
+            logging.info(f"Full LLM endpoint URL (repr): {repr(self.base_url)}")
+            logging.info(f"Full LLM endpoint URL (len): {len(self.base_url)} chars")
+            logging.info(f"Full LLM endpoint URL (hex dump first 100): {self.base_url[:100].encode('utf-8').hex()}")
             logging.info(f"Using model: {self.model}")
             logging.info(f"API key prefix: {self.api_key[:10]}...")    # nur zum Check, ob Key da ist
             resp = requests.post(self.base_url, headers=headers, json=payload, timeout=60)
