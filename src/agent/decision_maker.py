@@ -118,6 +118,8 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
             logging.info(f"Full LLM endpoint URL (hex dump first 100): {self.base_url[:100].encode('utf-8').hex()}")
             logging.info(f"Using model: {self.model}")
             logging.info(f"API key prefix: {self.api_key[:10]}...")    # nur zum Check, ob Key da ist
+            print(repr(self.base_url))          # in Logs  
+            print(self.base_url.encode('utf-8').hex())  # hex zeigt jedes Byte  
             resp = requests.post(self.base_url, headers=headers, json=payload, timeout=60)
             resp.raise_for_status()
             resp_json = resp.json()
