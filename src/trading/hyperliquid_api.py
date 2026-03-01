@@ -9,6 +9,7 @@ the trading agent can depend on predictable, non-blocking IO.
 import asyncio
 import logging
 import aiohttp
+import time
 from typing import TYPE_CHECKING
 from src.config_loader import CONFIG
 from hyperliquid.exchange import Exchange
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
 else:
     Account = _Account
 
+
 class HyperliquidAPI:
     """Facade around Hyperliquid SDK clients with async convenience methods.
 
@@ -47,6 +49,10 @@ class HyperliquidAPI:
                 configuration.
         """
         self._meta_cache = None
+        self._spot_meta_cache = None
+        self._spot_meta_cache_time = 0.0
+        self._spot_meta_cache_ttl = 300.0          # 5 Minuten
+
         if "hyperliquid_private_key" in CONFIG and CONFIG["hyperliquid_private_key"]:
             self.wallet = Account.from_key(CONFIG["hyperliquid_private_key"])
         elif "mnemonic" in CONFIG and CONFIG["mnemonic"]:
@@ -54,6 +60,7 @@ class HyperliquidAPI:
             self.wallet = Account.from_mnemonic(CONFIG["mnemonic"])
         else:
             raise ValueError("Either HYPERLIQUID_PRIVATE_KEY/LIGHTER_PRIVATE_KEY or MNEMONIC must be provided")
+
         # Choose base URL: allow override via env-config; fallback to network selection
         network = (CONFIG.get("hyperliquid_network") or "mainnet").lower()
         base_url = CONFIG.get("hyperliquid_base_url")
@@ -79,27 +86,7 @@ class HyperliquidAPI:
             logging.error("Failed to reset Hyperliquid clients: %s", e)
 
     async def _retry(self, fn, *args, max_attempts: int = 3, backoff_base: float = 0.5, reset_on_fail: bool = True, to_thread: bool = True, **kwargs):
-        """Retry helper with exponential backoff and optional thread offloading.
-
-        Args:
-            fn: Callable to invoke, either sync (supports `asyncio.to_thread`) or
-                async depending on ``to_thread``. The callable should raise
-                exceptions rather than returning sentinel values.
-            *args: Positional arguments forwarded to ``fn``.
-            max_attempts: Maximum number of attempts before surfacing the last
-                exception.
-            backoff_base: Initial delay in seconds, doubled after each failure.
-            reset_on_fail: Whether to rebuild Hyperliquid clients after a
-                failure.
-            to_thread: If ``True`` the callable is executed in a worker thread.
-            **kwargs: Keyword arguments forwarded to ``fn``.
-
-        Returns:
-            Result produced by ``fn``.
-
-        Raises:
-            Exception: Propagates any exception raised by ``fn`` after retries.
-        """
+        """Retry helper with exponential backoff and optional thread offloading."""
         last_err = None
         for attempt in range(max_attempts):
             try:
@@ -114,7 +101,6 @@ class HyperliquidAPI:
                 await asyncio.sleep(backoff_base * (2 ** attempt))
                 continue
             except (RuntimeError, ValueError, KeyError, AttributeError) as e:
-                # Unknown errors: don't spin forever, but allow a quick reset once
                 last_err = e
                 logging.warning("HL call unexpected error (attempt %s/%s): %s", attempt + 1, max_attempts, e)
                 if reset_on_fail and attempt == 0:
@@ -124,16 +110,40 @@ class HyperliquidAPI:
                 break
         raise last_err if last_err else RuntimeError("Hyperliquid retry: unknown error")
 
+    def get_spot_meta(self):
+        """Cached access to spot_meta – avoids repeated high-cost calls"""
+        current_time = time.time()
+
+        if self._spot_meta_cache is not None and \
+           (current_time - self._spot_meta_cache_time < self._spot_meta_cache_ttl):
+            logging.debug("Using cached spot_meta")
+            return self._spot_meta_cache
+
+        logging.info("Fetching fresh spot_meta (may hit rate limit)")
+
+        try:
+            meta = self.info.spot_meta()
+            self._spot_meta_cache = meta
+            self._spot_meta_cache_time = current_time
+            return meta
+        except Exception as e:
+            if hasattr(e, 'status_code') and e.status_code == 429:
+                logging.warning("Rate limit (429) on spot_meta → waiting 30s and retry once")
+                time.sleep(30)
+                try:
+                    meta = self.info.spot_meta()
+                    self._spot_meta_cache = meta
+                    self._spot_meta_cache_time = time.time()
+                    return meta
+                except Exception as retry_e:
+                    logging.error("Retry after 429 also failed: %s", retry_e)
+                    raise
+            else:
+                logging.error("Failed to fetch spot_meta: %s", e)
+                raise
+
     def round_size(self, asset, amount):
-        """Round order size to the asset precision defined by market metadata.
-
-        Args:
-            asset: Symbol of the market whose contract size we are rounding to.
-            amount: Desired contract size before rounding.
-
-        Returns:
-            The input ``amount`` rounded to the market's ``szDecimals`` precision.
-        """
+        """Round order size to the asset precision defined by market metadata."""
         meta = self._meta_cache[0] if hasattr(self, '_meta_cache') and self._meta_cache else None
         if meta:
             universe = meta.get("universe", [])
@@ -144,81 +154,27 @@ class HyperliquidAPI:
         return round(amount, 8)
 
     async def place_buy_order(self, asset, amount, slippage=0.01):
-        """Submit a market buy order with exchange-side rounding and retry logic.
-
-        Args:
-            asset: Market symbol to open.
-            amount: Contract size to open before rounding.
-            slippage: Maximum acceptable slippage expressed as a decimal.
-
-        Returns:
-            Raw SDK response from :meth:`Exchange.market_open`.
-        """
         amount = self.round_size(asset, amount)
         return await self._retry(lambda: self.exchange.market_open(asset, True, amount, None, slippage))
 
     async def place_sell_order(self, asset, amount, slippage=0.01):
-        """Submit a market sell order with exchange-side rounding and retry logic.
-
-        Args:
-            asset: Market symbol to open.
-            amount: Contract size to open before rounding.
-            slippage: Maximum acceptable slippage expressed as a decimal.
-
-        Returns:
-            Raw SDK response from :meth:`Exchange.market_open`.
-        """
         amount = self.round_size(asset, amount)
         return await self._retry(lambda: self.exchange.market_open(asset, False, amount, None, slippage))
 
     async def place_take_profit(self, asset, is_buy, amount, tp_price):
-        """Create a reduce-only trigger order that executes a take-profit exit.
-
-        Args:
-            asset: Market symbol to trade.
-            is_buy: ``True`` if the original position is long; dictates close
-                direction.
-            amount: Contract size to close.
-            tp_price: Trigger price for the take-profit order.
-
-        Returns:
-            Raw SDK response from `Exchange.order`.
-        """
         amount = self.round_size(asset, amount)
         order_type = {"trigger": {"triggerPx": tp_price, "isMarket": True, "tpsl": "tp"}}
         return await self._retry(lambda: self.exchange.order(asset, not is_buy, amount, tp_price, order_type, True))
 
     async def place_stop_loss(self, asset, is_buy, amount, sl_price):
-        """Create a reduce-only trigger order that executes a stop-loss exit.
-
-        Args:
-            asset: Market symbol to trade.
-            is_buy: ``True`` if the original position is long; dictates close
-                direction.
-            amount: Contract size to close.
-            sl_price: Trigger price for the stop-loss order.
-
-        Returns:
-            Raw SDK response from `Exchange.order`.
-        """
         amount = self.round_size(asset, amount)
         order_type = {"trigger": {"triggerPx": sl_price, "isMarket": True, "tpsl": "sl"}}
         return await self._retry(lambda: self.exchange.order(asset, not is_buy, amount, sl_price, order_type, True))
 
     async def cancel_order(self, asset, oid):
-        """Cancel a single order by identifier for a given asset.
-
-        Args:
-            asset: Market symbol associated with the order.
-            oid: Hyperliquid order identifier to cancel.
-
-        Returns:
-            Raw SDK response from :meth:`Exchange.cancel`.
-        """
         return await self._retry(lambda: self.exchange.cancel(asset, oid))
 
     async def cancel_all_orders(self, asset):
-        """Cancel every open order for ``asset`` owned by the configured wallet."""
         try:
             open_orders = await self._retry(lambda: self.info.frontend_open_orders(self.wallet.address))
             for order in open_orders:
@@ -232,14 +188,8 @@ class HyperliquidAPI:
             return {"status": "error", "message": str(e)}
 
     async def get_open_orders(self):
-        """Fetch and normalize open orders associated with the wallet.
-
-        Returns:
-            List of order dictionaries augmented with ``triggerPx`` when present.
-        """
         try:
             orders = await self._retry(lambda: self.info.frontend_open_orders(self.wallet.address))
-            # Normalize trigger price if present in orderType
             for o in orders:
                 try:
                     ot = o.get("orderType")
@@ -255,16 +205,7 @@ class HyperliquidAPI:
             return []
 
     async def get_recent_fills(self, limit: int = 50):
-        """Return the most recent fills when supported by the SDK variant.
-
-        Args:
-            limit: Maximum number of fills to return.
-
-        Returns:
-            List of fill dictionaries or an empty list if unsupported.
-        """
         try:
-            # Some SDK versions expose user_fills; fall back gracefully if absent
             if hasattr(self.info, 'user_fills'):
                 fills = await self._retry(lambda: self.info.user_fills(self.wallet.address))
             elif hasattr(self.info, 'fills'):
@@ -279,14 +220,6 @@ class HyperliquidAPI:
             return []
 
     def extract_oids(self, order_result):
-        """Extract resting or filled order identifiers from an exchange response.
-
-        Args:
-            order_result: Raw order response payload returned by the exchange.
-
-        Returns:
-            List of order identifiers present in resting or filled status entries.
-        """
         oids = []
         try:
             statuses = order_result["response"]["data"]["statuses"]
@@ -300,11 +233,6 @@ class HyperliquidAPI:
         return oids
 
     async def get_user_state(self):
-        """Retrieve wallet state with enriched position PnL calculations.
-
-        Returns:
-            Dictionary with ``balance``, ``total_value``, and ``positions``.
-        """
         state = await self._retry(lambda: self.info.user_state(self.wallet.address))
         positions = state.get("assetPositions", [])
         total_value = float(state.get("accountValue", 0.0))
@@ -325,38 +253,16 @@ class HyperliquidAPI:
         return {"balance": balance, "total_value": total_value, "positions": enriched_positions}
 
     async def get_current_price(self, asset):
-        """Return the latest mid-price for ``asset``.
-
-        Args:
-            asset: Market symbol to query.
-
-        Returns:
-            Mid-price as a float, or ``0.0`` when unavailable.
-        """
         mids = await self._retry(self.info.all_mids)
         return float(mids.get(asset, 0.0))
 
     async def get_meta_and_ctxs(self):
-        """Return cached meta/context information, fetching once per lifecycle.
-
-        Returns:
-            Cached metadata response as returned by
-            :meth:`Info.meta_and_asset_ctxs`.
-        """
         if not self._meta_cache:
             response = await self._retry(self.info.meta_and_asset_ctxs)
             self._meta_cache = response
         return self._meta_cache
 
     async def get_open_interest(self, asset):
-        """Return open interest for ``asset`` if it exists in cached metadata.
-
-        Args:
-            asset: Market symbol to query.
-
-        Returns:
-            Rounded open interest or ``None`` if unavailable.
-        """
         try:
             data = await self.get_meta_and_ctxs()
             if isinstance(data, list) and len(data) >= 2:
@@ -372,14 +278,6 @@ class HyperliquidAPI:
             return None
 
     async def get_funding_rate(self, asset):
-        """Return the most recent funding rate for ``asset`` if available.
-
-        Args:
-            asset: Market symbol to query.
-
-        Returns:
-            Funding rate as a float or ``None`` when not present.
-        """
         try:
             data = await self.get_meta_and_ctxs()
             if isinstance(data, list) and len(data) >= 2:
