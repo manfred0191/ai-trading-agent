@@ -13,6 +13,8 @@ import json
 from datetime import datetime
 from src.config_loader import CONFIG
 from urllib.parse import urljoin
+from eth_account import Account
+from eth_account.signers.local import LocalAccount
 
 
 class TradingAgent:
@@ -54,18 +56,33 @@ class TradingAgent:
         hl_env = os.getenv("HYPERLIQUID_ENVIRONMENT", "testnet")
         base_url = constants.TESTNET_API_URL if hl_env == "testnet" else constants.MAINNET_API_URL
 
-        private_key = os.getenv("HYPERLIQUID_PRIVATE_KEY")
-        account_address = os.getenv("HYPERLIQUID_ACCOUNT_ADDRESS")
+private_key = os.getenv("HYPERLIQUID_PRIVATE_KEY")
+account_address = os.getenv("HYPERLIQUID_ACCOUNT_ADDRESS")
 
-        if not private_key or not account_address:
-            logging.error("Hyperliquid Keys fehlen in ENV → Abbruch")
-            return
+if not private_key:
+    logging.error("HYPERLIQUID_PRIVATE_KEY fehlt")
+    return
 
-        exchange = Exchange(
-            wallet=private_key,
-            base_url=base_url,
-            account_address=account_address
-        )
+if not private_key.startswith("0x"):
+    private_key = "0x" + private_key
+
+try:
+    wallet: LocalAccount = Account.from_key(private_key)
+except ValueError as e:
+    logging.error(f"Ungültiger HYPERLIQUID_PRIVATE_KEY: {e}")
+    return
+
+if not account_address:
+    account_address = wallet.address
+
+logging.info(f"Wallet-Adresse: {wallet.address}")
+logging.info(f"Verwendete Account-Adresse: {account_address}")
+
+exchange = Exchange(
+    wallet,                         # ← Korrekt: das signierfähige Objekt
+    base_url=base_url,
+    account_address=account_address
+)
 
         logging.info(f"Hyperliquid Exchange initialisiert ({hl_env})")
 
