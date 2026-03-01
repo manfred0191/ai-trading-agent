@@ -74,29 +74,52 @@ class TradingAgent:
             if action not in ("BUY", "SELL"):
                 continue
 
-            symbol = trade["symbol"].replace("-USD", "").replace("-USDT", "").upper()  # z.B. "ETH"
+            symbol = trade["symbol"].replace("-USD", "").replace("-USDT", "").upper()  # "ETH"
             is_buy = action == "BUY"
-            size_pct = float(trade.get("size_pct", 0.05))   # z.B. 0.05 = 5%
+            size_pct = float(trade.get("size_pct", 0.05))   # 0.05 = 5%
             leverage = int(trade.get("leverage", 5))
 
             try:
-                # Einfache Markt-Order (aggressiv, sofort fill oder cancel)
+                # Leverage zuerst setzen (einmal pro Coin)
+                exchange.update_leverage(leverage, symbol)   # ← symbol = "ETH"
+
+                # Aktuellen Mid-Preis holen
+                info = Info(base_url, skip_ws=True)
+                mids = info.all_mids()
+                price = float(mids.get(symbol, "0"))
+                if price <= 0:
+                    logging.error(f"Kein Preis verfügbar für {symbol}")
+                    continue
+
+                # Balance holen → echte Größe berechnen
+                user_state = info.user_state(account_address)
+                usdc = float(user_state.get("marginSummary", {}).get("accountValue", "0"))
+                if usdc <= 0:
+                    logging.error("Kein USDC-Balance auf Testnet")
+                    continue
+
+                usdc_to_use = usdc * size_pct
+                sz = usdc_to_use / price   # Coin-Menge (z.B. 0.012 ETH bei 2000$ und 25$ Einsatz)
+
+                logging.info(f"Trade-Plan: {action} {symbol} | sz ≈ {sz:.6f} | price ≈ {price} | lev {leverage}")
+
+                # Market Open Order
                 order_result = exchange.market_open(
-                    coin=symbol,
+                    name=symbol,           # ← der Fix!
                     is_buy=is_buy,
-                    sz=size_pct * 10,          # ← Platzhalter! Passe an echte Größenberechnung an
-                    slippage=0.02              # 2% Slippage-Toleranz
+                    sz=sz,
+                    slippage=0.015         # 1.5% Toleranz
                 )
 
-                logging.info(f"Order-Antwort für {symbol}: {order_result}")
+                logging.info(f"Order-Antwort: {json.dumps(order_result, indent=2)}")
 
                 if order_result.get("status") == "ok":
-                    logging.info(f"✅ {action} {symbol} platziert")
+                    logging.info(f"✅ Erfolgreich: {action} {symbol}")
                 else:
-                    logging.error(f"❌ Order fehlgeschlagen: {order_result}")
+                    logging.error(f"Order fehlgeschlagen: {order_result}")
 
             except Exception as e:
-                logging.exception(f"Fehler bei {symbol}: {e}")
+                logging.exception(f"Fehler bei {symbol}: {str(e)}")
                 
     def _decide(self, context, assets):
         """Send request to LLM and parse decision."""
