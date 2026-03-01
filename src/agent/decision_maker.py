@@ -43,6 +43,7 @@ Du bekommst immer die aktuellen TAAPI-Indikatoren und Markt-Context für die Ass
 Aktuelle Zeit: {current_time}
 
 Nutze fetch_taapi_indicator aggressiv, um fehlende Daten zu holen (15m Interval!).
+Wenn TAAPI nicht verfügbar, nutze nur den gegebenen Context und dein internes Wissen für die Entscheidung.
 
 Antworte NUR im exakten JSON-Format – nichts anderes:
 {{
