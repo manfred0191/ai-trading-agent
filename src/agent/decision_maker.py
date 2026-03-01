@@ -124,25 +124,31 @@ class TradingAgent:
                 usdc_to_use = usdc * size_pct
                 usdc_to_use = min(usdc_to_use, 10.0)  # Cap
 
+                # Roh-Größe berechnen
                 sz_raw = usdc_to_use / price
-                sz = round(sz_raw, 8)
 
-                min_sz = 0.001 if symbol in ["ETH", "BTC", "SOL"] else 0.01
+                # Asset-spezifische Mindestgröße (Hyperliquid lehnt sehr kleine Orders ab)
+                min_sz_map = {
+                    "ETH": 0.001,
+                    "BTC": 0.0001,
+                    "SOL": 0.01,
+                    "BNB": 0.01,
+                    "EIGEN": 1.0,  # Beispiel – oft höher bei Low-Cap-Coins
+                }
+                min_sz = min_sz_map.get(symbol, 0.01)  # Default 0.01
+
+                # Zuerst auf Mindestgröße bringen, dann runden
+                sz = max(sz_raw, min_sz)
+
+                # Präzision: 5 Dezimalstellen sind für die meisten Assets sicher
+                sz = round(sz, 5)
+
                 if sz < min_sz:
-                    logging.warning(f"Größe zu klein ({sz:.8f}) für {symbol} → überspringe")
+                    logging.warning(f"Größe {sz:.8f} unter Minimum {min_sz} für {symbol} → überspringe")
                     continue
 
-                logging.info(f"Trade-Plan: {action} {symbol} | sz = {sz:.8f} | price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f}")
-
-                order_result = exchange.market_open(
-                    name=symbol,
-                    is_buy=is_buy,
-                    sz=sz,
-                    slippage=0.015
-                )
-
-                logging.info(f"Order-Antwort: {json.dumps(order_result, indent=2)}")
-
+                logging.info(f"Trade-Plan: {action} {symbol} | sz = {sz:.8f} (min {min_sz}) | price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f}")
+                
                 if order_result.get("status") == "ok":
                     logging.info(f"✅ Erfolgreich: {action} {symbol}")
                 else:
@@ -150,6 +156,7 @@ class TradingAgent:
 
             except Exception as e:
                 logging.exception(f"Fehler bei {symbol}: {str(e)}")
+    
     def _decide(self, context, assets):
         system_prompt = """Du bist der smarteste, disziplinierteste und profitabelste Crypto-Trader der Welt. 
 Dein einziger Job ist es, auf Hyperliquid möglichst viel Geld zu verdienen.
