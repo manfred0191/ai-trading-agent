@@ -35,27 +35,69 @@ class TradingAgent:
         return decision
 
     def _execute_trades(self, decision: dict):
-        """Verwendet die originale hyperliquid_api.py aus dem Repo"""
-        from src.trading.hyperliquid_api import HyperliquidAPI   # Original-Import
+        from hyperliquid.exchange import Exchange
+        from hyperliquid.utils import constants
+        import os
 
-        if os.getenv("DRY_RUN", "false").lower() == "true":
-            logging.warning("🔒 DRY-RUN Modus aktiv – keine echten Orders!")
-            return
-        
         decisions = decision.get("trade_decisions", [])
         if not decisions:
-            logging.info("🟡 Keine Trades vorgeschlagen → HOLD")
+            logging.info("Keine Trades → nichts zu tun")
             return
 
-        logging.info(f"🚀 Führe {len(decisions)} Trade(s) aus...")
+        # Sicherheitsbremse während Test
+        if os.getenv("DRY_RUN", "true").lower() in ("true", "1"):
+            logging.warning("DRY_RUN aktiv → KEINE echten Orders! (setze DRY_RUN=false für live)")
+            for trade in decisions:
+                logging.info(f"[DRY] Würde ausführen: {trade}")
+            return
 
-        try:
-            hl = HyperliquidAPI()   # liest automatisch aus CONFIG / env
-            hl.execute(decision)    # Original-Methode des Repos
-            logging.info("✅ Trades erfolgreich an Hyperliquid gesendet")
-        except Exception as e:
-            logging.error(f"❌ Ausführungsfehler: {e}")
+        hl_env = os.getenv("HYPERLIQUID_ENVIRONMENT", "testnet")
+        base_url = constants.TESTNET_API_URL if hl_env == "testnet" else constants.MAINNET_API_URL
 
+        private_key = os.getenv("HYPERLIQUID_PRIVATE_KEY")
+        account_address = os.getenv("HYPERLIQUID_ACCOUNT_ADDRESS")
+
+        if not private_key or not account_address:
+            logging.error("Hyperliquid Keys fehlen in ENV → Abbruch")
+            return
+
+        exchange = Exchange(
+            wallet=private_key,
+            base_url=base_url,
+            account_address=account_address
+        )
+
+        logging.info(f"Hyperliquid Exchange initialisiert ({hl_env})")
+
+        for trade in decisions:
+            action = trade.get("action", "HOLD").upper()
+            if action not in ("BUY", "SELL"):
+                continue
+
+            symbol = trade["symbol"].replace("-USD", "").replace("-USDT", "").upper()  # z.B. "ETH"
+            is_buy = action == "BUY"
+            size_pct = float(trade.get("size_pct", 0.05))   # z.B. 0.05 = 5%
+            leverage = int(trade.get("leverage", 5))
+
+            try:
+                # Einfache Markt-Order (aggressiv, sofort fill oder cancel)
+                order_result = exchange.market_open(
+                    coin=symbol,
+                    is_buy=is_buy,
+                    sz=size_pct * 10,          # ← Platzhalter! Passe an echte Größenberechnung an
+                    slippage=0.02              # 2% Slippage-Toleranz
+                )
+
+                logging.info(f"Order-Antwort für {symbol}: {order_result}")
+
+                if order_result.get("status") == "ok":
+                    logging.info(f"✅ {action} {symbol} platziert")
+                else:
+                    logging.error(f"❌ Order fehlgeschlagen: {order_result}")
+
+            except Exception as e:
+                logging.exception(f"Fehler bei {symbol}: {e}")
+                
     def _decide(self, context, assets):
         """Send request to LLM and parse decision."""
         system_prompt = """Du bist der smarteste, disziplinierteste und profitabelste Crypto-Trader der Welt. 
