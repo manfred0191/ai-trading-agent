@@ -6,7 +6,6 @@ import requests
 import json
 from datetime import datetime
 from src.config_loader import CONFIG
-from urllib.parse import urljoin
 
 # Hyperliquid Imports
 from hyperliquid.exchange import Exchange
@@ -18,7 +17,7 @@ from eth_account.signers.local import LocalAccount
 # Logging Setup
 http_client.HTTPConnection.debuglevel = 1
 logging.basicConfig(level=logging.INFO)
-logging.getLogger("urllib3").setLevel(logging.WARNING)  # Weniger urllib3-Noise
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 requests_log = logging.getLogger("requests.packages.urllib3")
 requests_log.setLevel(logging.WARNING)
 requests_log.propagate = False
@@ -56,24 +55,21 @@ class TradingAgent:
                 logging.info(f"[DRY-RUN] Würde ausführen: {trade}")
             return
 
-        # Alte Zeile:
-        # hl_env = os.getenv("HYPERLIQUID_ENVIRONMENT", "testnet")
-        
-        # Neue, strengere Version:
         hl_env = os.getenv("HYPERLIQUID_ENVIRONMENT")
         if hl_env is None:
-            logging.error("HYPERLIQUID_ENVIRONMENT ist nicht gesetzt! Abbruch.")
+            logging.error("HYPERLIQUID_ENVIRONMENT nicht gesetzt → Abbruch")
             return
         if hl_env not in ("mainnet", "testnet"):
-            logging.error(f"Ungültiger Wert für HYPERLIQUID_ENVIRONMENT: '{hl_env}' → nur 'mainnet' oder 'testnet' erlaubt")
+            logging.error(f"Ungültiger Wert für HYPERLIQUID_ENVIRONMENT: {hl_env}")
             return
+
         base_url = constants.TESTNET_API_URL if hl_env == "testnet" else constants.MAINNET_API_URL
 
         private_key = os.getenv("HYPERLIQUID_PRIVATE_KEY")
         account_address = os.getenv("HYPERLIQUID_ACCOUNT_ADDRESS")
 
         if not private_key:
-            logging.error("HYPERLIQUID_PRIVATE_KEY fehlt in Umgebungsvariablen")
+            logging.error("HYPERLIQUID_PRIVATE_KEY fehlt")
             return
 
         if not private_key.startswith("0x"):
@@ -116,50 +112,28 @@ class TradingAgent:
                 # Leverage setzen
                 exchange.update_leverage(leverage, symbol)
 
-                # Preis + Balance holen
+                # Preis holen
                 info = Info(base_url, skip_ws=True)
-                # Asset-Präzision aus Meta holen (falls verfügbar)
-                try:
-                    meta = info.meta()
-                    universe = meta.get("universe", [])
-                    asset_info = next((u for u in universe if u.get("name") == symbol), None)
-                    if asset_info:
-                        decimals = asset_info.get("szDecimals", 8)
-                        sz = round(usdc_to_use / price, decimals)
-                        logging.info(f"{symbol} szDecimals = {decimals} → gerundet auf {sz:.8f}")
-                    else:
-                        sz = round(usdc_to_use / price, 8)  # Fallback
-                except Exception as meta_err:
-                    logging.warning(f"Konnte szDecimals nicht holen: {meta_err} → fallback auf 8 Dezimalen")
-                    sz = round(usdc_to_use / price, 8)                
                 mids = info.all_mids()
                 price = float(mids.get(symbol, "0"))
                 if price <= 0:
                     logging.error(f"Kein Preis verfügbar für {symbol}")
                     continue
 
-                # Perps-State (wie bisher)
-                # Balance holen → echte Größe berechnen
+                # Balance holen (Perps)
                 user_state = info.user_state(account_address)
                 usdc = float(user_state.get("marginSummary", {}).get("accountValue", "0"))
+
                 if usdc <= 0:
                     logging.error("Kein USDC-Balance verfügbar")
                     continue
 
                 usdc_to_use = usdc * size_pct
+                usdc_to_use = min(usdc_to_use, 10.0)  # Sicherheits-Cap
 
-                # Sicherheits-Cap (z. B. max 10 USDC pro Trade beim ersten Mal)
-                usdc_to_use = min(usdc_to_use, 10.0)
+                sz_raw = usdc_to_use / price
 
-                # Preis holen (schon oben, aber sicherstellen)
-                if price <= 0:
-                    logging.error(f"Kein Preis verfügbar für {symbol}")
-                    continue
-
-                # Gerundete Größe berechnen
-                sz = usdc_to_use / price
-
-                # Asset-Präzision aus Meta holen (fallback 8 Dezimalen)
+                # Präzision holen
                 decimals = 8
                 try:
                     meta = info.meta()
@@ -167,29 +141,32 @@ class TradingAgent:
                     asset_info = next((u for u in universe if u.get("name") == symbol), None)
                     if asset_info:
                         decimals = asset_info.get("szDecimals", 8)
-                        logging.info(f"{symbol} szDecimals = {decimals}")
-                except Exception as meta_err:
-                    logging.warning(f"Konnte szDecimals nicht holen: {meta_err} → fallback 8 Dezimalen")
+                        logging.debug(f"{symbol} → szDecimals = {decimals}")
+                except Exception as e:
+                    logging.warning(f"Meta-Fehler für szDecimals: {e} → fallback 8 Dezimalen")
 
-                # Runden – jetzt ist usdc_to_use immer definiert
-                sz = round(sz, decimals)
+                sz = round(sz_raw, decimals)
 
-                # Mindestgröße-Check (Hyperliquid lehnt oft < 0.001 ab)
+                # Mindestgröße
                 min_sz = 0.001 if symbol in ["ETH", "BTC", "SOL"] else 0.01
                 if sz < min_sz:
-                    logging.warning(f"Größe {sz:.8f} unter Minimum ({min_sz}) für {symbol} → überspringe")
+                    logging.warning(f"Größe zu klein ({sz:.8f} < {min_sz}) für {symbol} → überspringe")
                     continue
 
-                logging.info(f"Trade-Plan: {action} {symbol} | sz ≈ {sz:.8f} | price ≈ {price} | lev {leverage} | usdc ≈ {usdc_to_use:.2f}")
+                logging.info(
+                    f"Trade-Plan: {action} {symbol} | "
+                    f"raw_sz = {sz_raw:.8f} | rounded_sz = {sz:.8f} | "
+                    f"price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f} | lev {leverage}"
+                )
 
-                # Market Open Order
+                # Order senden
                 order_result = exchange.market_open(
                     name=symbol,
                     is_buy=is_buy,
                     sz=sz,
                     slippage=0.015
                 )
-                
+
                 logging.info(f"Order-Antwort: {json.dumps(order_result, indent=2)}")
 
                 if order_result.get("status") == "ok":
