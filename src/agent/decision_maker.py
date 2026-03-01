@@ -56,7 +56,7 @@ class TradingAgent:
                 logging.info(f"[DRY-RUN] Würde ausführen: {trade}")
             return
 
-        hl_env = os.getenv("HYPERLIQUID_ENVIRONMENT", "testnet")
+        hl_env = os.getenv("HYPERLIQUID_ENVIRONMENT") or "mainnet"
         base_url = constants.TESTNET_API_URL if hl_env == "testnet" else constants.MAINNET_API_URL
 
         private_key = os.getenv("HYPERLIQUID_PRIVATE_KEY")
