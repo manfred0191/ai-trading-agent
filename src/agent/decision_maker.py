@@ -102,21 +102,31 @@ class TradingAgent:
                     logging.error(f"Kein Preis für {symbol}")
                     continue
 
+                # === BALANCE AUS SPOT + FALLBACK PERPS ===
+                spot_state = info.spot_user_state(account_address)
+                usdc_spot = 0.0
+                for bal in spot_state.get("balances", []):
+                    if bal.get("coin") == "USDC":
+                        usdc_spot = float(bal.get("total", "0"))
+                        break
+
                 user_state = info.user_state(account_address)
-                usdc = float(user_state.get("marginSummary", {}).get("accountValue", "0"))
+                usdc_perps = float(user_state.get("marginSummary", {}).get("accountValue", "0"))
+
+                usdc = max(usdc_spot, usdc_perps)  # Unified → meist Spot dominiert
+
+                logging.info(f"Balance-Check: Spot = {usdc_spot:.2f}, Perps = {usdc_perps:.2f} → verwende {usdc:.2f}")
+
                 if usdc <= 0:
-                    logging.error("Kein USDC-Balance verfügbar")
+                    logging.error("Kein USDC-Balance verfügbar (weder Spot noch Perps)")
                     continue
 
                 usdc_to_use = usdc * size_pct
-                usdc_to_use = min(usdc_to_use, 10.0)          # Sicherheits-Cap
+                usdc_to_use = min(usdc_to_use, 10.0)  # Cap
 
                 sz_raw = usdc_to_use / price
+                sz = round(sz_raw, 8)
 
-                # === SAUBERE RUNDUNG ===
-                sz = round(sz_raw, 8)                         # Standard für die meisten Assets
-
-                # Mindestgröße-Check
                 min_sz = 0.001 if symbol in ["ETH", "BTC", "SOL"] else 0.01
                 if sz < min_sz:
                     logging.warning(f"Größe zu klein ({sz:.8f}) für {symbol} → überspringe")
@@ -140,7 +150,6 @@ class TradingAgent:
 
             except Exception as e:
                 logging.exception(f"Fehler bei {symbol}: {str(e)}")
-
     def _decide(self, context, assets):
         system_prompt = """Du bist der smarteste, disziplinierteste und profitabelste Crypto-Trader der Welt. 
 Dein einziger Job ist es, auf Hyperliquid möglichst viel Geld zu verdienen.
