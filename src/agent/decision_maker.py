@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 from src.config_loader import CONFIG
 from src.indicators.taapi_client import TAAPIClient
+from urllib.parse import urljoin
 
 class TradingAgent:
     """Trading agent focused on momentum trades for volatile altcoins."""
@@ -14,10 +15,12 @@ class TradingAgent:
         """Initialize LLM and TAAPI client."""
         self.model = CONFIG["llm_model"]
         self.api_key = CONFIG["openrouter_api_key"]  # das ist jetzt dein Groq-Key
-        base = CONFIG["openrouter_base_url"]         # https://api.groq.com/openai/v1
-        self.base_url = f"{base}/chat/completions"
+        # base = CONFIG["openrouter_base_url"]         # https://api.groq.com/openai/v1
+        # self.base_url = f"{base}/chat/completions"
         self.taapi = TAAPIClient()
-
+        base = CONFIG["openrouter_base_url"].rstrip('/') + '/'   # sicherstellen, dass base mit / endet
+        self.base_url = urljoin(base, "chat/completions")
+    
     def decide_trade(self, assets, context):
         """Decide for multiple assets in one LLM call."""
         return self._decide(context, assets=assets)
