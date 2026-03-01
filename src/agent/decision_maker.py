@@ -2,19 +2,26 @@
 import os
 import logging
 import http.client as http_client
-http_client.HTTPConnection.debuglevel = 1
-logging.basicConfig()
-logging.getLogger().setLevel(logging.DEBUG)
-requests_log = logging.getLogger("requests.packages.urllib3")
-requests_log.setLevel(logging.DEBUG)
-requests_log.propagate = True
 import requests
 import json
 from datetime import datetime
 from src.config_loader import CONFIG
 from urllib.parse import urljoin
+
+# Hyperliquid Imports
+from hyperliquid.exchange import Exchange
+from hyperliquid.info import Info
+from hyperliquid.utils import constants
 from eth_account import Account
 from eth_account.signers.local import LocalAccount
+
+# Logging Setup
+http_client.HTTPConnection.debuglevel = 1
+logging.basicConfig(level=logging.INFO)
+logging.getLogger("urllib3").setLevel(logging.WARNING)  # Weniger urllib3-Noise
+requests_log = logging.getLogger("requests.packages.urllib3")
+requests_log.setLevel(logging.WARNING)
+requests_log.propagate = False
 
 
 class TradingAgent:
@@ -27,80 +34,79 @@ class TradingAgent:
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
 
     def decide_trade(self, assets, context):
-        """Entscheidet + führt sofort aus (Original-Repo Flow)"""
-        decision = self._decide(context, assets=assets)   # dein bestehender LLM-Code
-        
-        # ← NEU: echte Ausführung
+        """Entscheidet + führt sofort aus."""
+        decision = self._decide(context, assets=assets)
+
         if decision.get("trade_decisions"):
             self._execute_trades(decision)
-        
+
         return decision
 
     def _execute_trades(self, decision: dict):
-        from hyperliquid.exchange import Exchange
-        from hyperliquid.utils import constants
-        import os
-
         decisions = decision.get("trade_decisions", [])
         if not decisions:
-            logging.info("Keine Trades → nichts zu tun")
+            logging.info("Keine Trades vorgeschlagen → nichts zu tun")
             return
 
-        # Sicherheitsbremse während Test
-        if os.getenv("DRY_RUN", "true").lower() in ("true", "1"):
-            logging.warning("DRY_RUN aktiv → KEINE echten Orders! (setze DRY_RUN=false für live)")
+        # Sicherheitsbremse
+        dry_run = os.getenv("DRY_RUN", "true").lower() in ("true", "1", "yes")
+        if dry_run:
+            logging.warning("DRY_RUN ist aktiv → KEINE echten Orders werden gesendet")
             for trade in decisions:
-                logging.info(f"[DRY] Würde ausführen: {trade}")
+                logging.info(f"[DRY-RUN] Würde ausführen: {trade}")
             return
 
         hl_env = os.getenv("HYPERLIQUID_ENVIRONMENT", "testnet")
         base_url = constants.TESTNET_API_URL if hl_env == "testnet" else constants.MAINNET_API_URL
 
-private_key = os.getenv("HYPERLIQUID_PRIVATE_KEY")
-account_address = os.getenv("HYPERLIQUID_ACCOUNT_ADDRESS")
+        private_key = os.getenv("HYPERLIQUID_PRIVATE_KEY")
+        account_address = os.getenv("HYPERLIQUID_ACCOUNT_ADDRESS")
 
-if not private_key:
-    logging.error("HYPERLIQUID_PRIVATE_KEY fehlt")
-    return
+        if not private_key:
+            logging.error("HYPERLIQUID_PRIVATE_KEY fehlt in Umgebungsvariablen")
+            return
 
-if not private_key.startswith("0x"):
-    private_key = "0x" + private_key
+        if not private_key.startswith("0x"):
+            private_key = "0x" + private_key
 
-try:
-    wallet: LocalAccount = Account.from_key(private_key)
-except ValueError as e:
-    logging.error(f"Ungültiger HYPERLIQUID_PRIVATE_KEY: {e}")
-    return
+        try:
+            wallet: LocalAccount = Account.from_key(private_key)
+        except ValueError as e:
+            logging.error(f"Ungültiger HYPERLIQUID_PRIVATE_KEY: {e}")
+            return
 
-if not account_address:
-    account_address = wallet.address
+        if not account_address:
+            account_address = wallet.address
 
-logging.info(f"Wallet-Adresse: {wallet.address}")
-logging.info(f"Verwendete Account-Adresse: {account_address}")
+        logging.info(f"Wallet-Adresse: {wallet.address}")
+        logging.info(f"Verwendete Account-Adresse: {account_address}")
 
-exchange = Exchange(
-    wallet,                         # ← Korrekt: das signierfähige Objekt
-    base_url=base_url,
-    account_address=account_address
-)
-
-        logging.info(f"Hyperliquid Exchange initialisiert ({hl_env})")
+        try:
+            exchange = Exchange(
+                wallet,
+                base_url=base_url,
+                account_address=account_address
+            )
+            logging.info(f"Hyperliquid Exchange initialisiert ({hl_env})")
+        except Exception as e:
+            logging.error(f"Fehler beim Initialisieren von Exchange: {e}")
+            return
 
         for trade in decisions:
             action = trade.get("action", "HOLD").upper()
             if action not in ("BUY", "SELL"):
                 continue
 
-            symbol = trade["symbol"].replace("-USD", "").replace("-USDT", "").upper()  # "ETH"
+            symbol = trade["symbol"].replace("-USD", "").replace("-USDT", "").upper()
             is_buy = action == "BUY"
-            size_pct = float(trade.get("size_pct", 0.05))   # 0.05 = 5%
+            size_pct = float(trade.get("size_pct", 0.05))
             leverage = int(trade.get("leverage", 5))
 
             try:
-                # Leverage zuerst setzen (einmal pro Coin)
-                exchange.update_leverage(leverage, symbol)   # ← symbol = "ETH"
+                # Leverage setzen
+                exchange.update_leverage(leverage, symbol)
 
-                # Aktuellen Mid-Preis holen
+                # Preis + Balance holen
                 info = Info(base_url, skip_ws=True)
                 mids = info.all_mids()
                 price = float(mids.get(symbol, "0"))
@@ -108,24 +114,23 @@ exchange = Exchange(
                     logging.error(f"Kein Preis verfügbar für {symbol}")
                     continue
 
-                # Balance holen → echte Größe berechnen
                 user_state = info.user_state(account_address)
                 usdc = float(user_state.get("marginSummary", {}).get("accountValue", "0"))
                 if usdc <= 0:
-                    logging.error("Kein USDC-Balance auf Testnet")
+                    logging.error("Kein USDC-Balance verfügbar")
                     continue
 
                 usdc_to_use = usdc * size_pct
-                sz = usdc_to_use / price   # Coin-Menge (z.B. 0.012 ETH bei 2000$ und 25$ Einsatz)
+                sz = usdc_to_use / price
 
                 logging.info(f"Trade-Plan: {action} {symbol} | sz ≈ {sz:.6f} | price ≈ {price} | lev {leverage}")
 
-                # Market Open Order
+                # Market Order senden
                 order_result = exchange.market_open(
-                    name=symbol,           # ← der Fix!
+                    name=symbol,
                     is_buy=is_buy,
                     sz=sz,
-                    slippage=0.015         # 1.5% Toleranz
+                    slippage=0.015
                 )
 
                 logging.info(f"Order-Antwort: {json.dumps(order_result, indent=2)}")
@@ -137,7 +142,7 @@ exchange = Exchange(
 
             except Exception as e:
                 logging.exception(f"Fehler bei {symbol}: {str(e)}")
-                
+
     def _decide(self, context, assets):
         """Send request to LLM and parse decision."""
         system_prompt = """Du bist der smarteste, disziplinierteste und profitabelste Crypto-Trader der Welt. 
@@ -181,7 +186,9 @@ und mache einen kleinen Long-Trade (max 5–10 % Größe, max 3–5× Leverage).
 Schreibe in reasoning explizit dazu, dass dies ein Test-Trade ist.
 Nach diesem Test kehren die normalen strengen Regeln sofort wieder.
 
-Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig – aber nie dumm.""".format(current_time=datetime.utcnow().isoformat())
+Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig – aber nie dumm.""".format(
+            current_time=datetime.utcnow().isoformat()
+        )
 
         user_prompt = context
 
@@ -205,20 +212,14 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
 
         try:
             logging.info(f"Full LLM endpoint URL (repr): {repr(self.base_url)}")
-            logging.info(f"Full LLM endpoint URL (len): {len(self.base_url)} chars")
-            logging.info(f"Full LLM endpoint URL (hex dump first 100): {self.base_url[:100].encode('utf-8').hex()}")
             logging.info(f"Using model: {self.model}")
             logging.info(f"API key prefix: {self.api_key[:10]}...")
-
-            print(repr(self.base_url))          # in Logs
-            print(self.base_url.encode('utf-8').hex())
 
             resp = requests.post(self.base_url, headers=headers, json=payload, timeout=60)
             resp.raise_for_status()
             resp_json = resp.json()
             message = resp_json["choices"][0]["message"]
 
-            # Keine Tool-Calls mehr → direkt den Content parsen
             content = message.get("content") or "{}"
             try:
                 parsed = json.loads(content)
@@ -232,4 +233,3 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
         except Exception as e:
             logging.error(f"LLM decision failed: {str(e)}")
             return {"reasoning": f"Error during decision: {str(e)}", "trade_decisions": []}
-            
