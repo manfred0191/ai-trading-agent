@@ -32,18 +32,11 @@ Regeln, an die du dich 100 % hältst:
 - Finde volatile Altcoins (hohe Volatilität, steigendes Volume, Breakouts, starke Moves).
 - Maximal 10x Leverage – nie mehr!
 - Check alle 15 Minuten.
-- Nutze TAAPI-Indikatoren auf 15m: EMA9/EMA21 Crossover bullish, RSI14 > 55 (besser >60), MACD-Histogramm steigend und über Null, Volume-Surge, Price über recent high oder VWAP.
 - Nur Longs bei starkem Momentum (keine Shorts, es sei denn extrem klares Setup).
 - Position: maximal 20 % des aktuellen Balances pro Trade.
 - Kein Gambling – nur high-probability Setups mit klarem Edge (mind. 2–3 konfluente Signale).
 - Wenn nichts Gutes da ist → HOLD und warte geduldig.
-- Sei extrem selektiv: Lieber 0–1 Trade pro Tag als schlechte Trades.
-
-Du bekommst immer die aktuellen TAAPI-Indikatoren und Markt-Context für die Assets aus der Config.
-Aktuelle Zeit: {current_time}
-
-Nutze fetch_taapi_indicator aggressiv, um fehlende Daten zu holen (15m Interval!).
-Wenn TAAPI nicht verfügbar, nutze nur den gegebenen Context und dein internes Wissen für die Entscheidung.
+- Sei extrem selektiv: Lieber weniger Trades pro Tag als schlechte Trades.
 
 Antworte NUR im exakten JSON-Format – nichts anderes:
 {{
@@ -69,25 +62,25 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
             {"role": "user", "content": user_prompt},
         ]
 
-        tools = [{
-            "type": "function",
-            "function": {
-                "name": "fetch_taapi_indicator",
-                "description": "Fetch TAAPI indicator (15m empfohlen). Available: ema, rsi, macd, volume, atr, supertrend, vwap, etc.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "indicator": {"type": "string"},
-                        "symbol": {"type": "string"},
-                        "interval": {"type": "string", "default": "15m"},
-                        "period": {"type": "integer"},
-                        "backtrack": {"type": "integer", "default": 0},
-                        "other_params": {"type": "object", "additionalProperties": True},
-                    },
-                    "required": ["indicator", "symbol", "interval"]
-                }
-            }
-        }]
+#        tools = [{
+#            "type": "function",
+#            "function": {
+#                "name": "fetch_taapi_indicator",
+#                "description": "Fetch TAAPI indicator (15m empfohlen). Available: ema, rsi, macd, volume, atr, supertrend, vwap, etc.",
+#                "parameters": {
+#                    "type": "object",
+#                    "properties": {
+#                        "indicator": {"type": "string"},
+#                        "symbol": {"type": "string"},
+#                        "interval": {"type": "string", "default": "15m"},
+#                        "period": {"type": "integer"},
+#                        "backtrack": {"type": "integer", "default": 0},
+#                        "other_params": {"type": "object", "additionalProperties": True},
+#                    },
+#                    "required": ["indicator", "symbol", "interval"]
+#                }
+#            }
+#        }]
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
