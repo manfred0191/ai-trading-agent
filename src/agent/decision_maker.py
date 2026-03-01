@@ -17,7 +17,7 @@ class TradingAgent:
         self.api_key = CONFIG["openrouter_api_key"]  # das ist jetzt dein Groq-Key
         # base = CONFIG["openrouter_base_url"]         # https://api.groq.com/openai/v1
         # self.base_url = f"{base}/chat/completions"
-        self.taapi = TAAPIClient()
+        # self.taapi = TAAPIClient()
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
         # Kommentiere die CONFIG-Zeilen aus
         # base = CONFIG["openrouter_base_url"].rstrip('/') + '/'   # sicherstellen, dass base mit / endet
@@ -42,6 +42,10 @@ Regeln, an die du dich 100 % hältst:
 - Kein Gambling – nur high-probability Setups mit klarem Edge (mind. 2–3 konfluente Signale).
 - Wenn nichts Gutes da ist → HOLD und warte geduldig.
 - Sei extrem selektiv: Lieber weniger Trades pro Tag als schlechte Trades.
+
+Wichtig: Du hast KEINEN Zugriff auf Echtzeit-Indikatoren (RSI, EMA, MACD, Volume etc.) oder externe APIs wie TAAPI. 
+Entscheide ausschließlich auf Basis des bereitgestellten Kontexts, allgemeinem Markt-Wissen und den strengen Regeln oben.
+Wenn der Kontext keine klaren Momentum-Signale enthält → HOLD.
 
 Antworte NUR im exakten JSON-Format – nichts anderes:
 {{
@@ -96,7 +100,7 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
             "model": self.model,
             "messages": messages,
             # "tools": tools,
-            "tool_choice": "auto",
+            "tool_choice": "none",
             "temperature": 0.4,           # etwas Kreativität, aber nicht zu wild
             "max_tokens": 1200
         }
