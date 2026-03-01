@@ -139,54 +139,57 @@ class TradingAgent:
                     continue
 
                 # Perps-State (wie bisher)
+                # Balance holen → echte Größe berechnen
                 user_state = info.user_state(account_address)
-                logging.info("=== Perps user_state ===")
-                logging.info(json.dumps(user_state, indent=2))
-
-                # Spot-State hinzufügen
-                spot_state = info.spot_user_state(account_address)
-                logging.info("=== Spot user_state ===")
-                logging.info(json.dumps(spot_state, indent=2))
-
-                # USDC aus Spot nehmen (Unified-Modus: Spot = Trading-Collateral)
-                usdc_spot = 0.0
-                for bal in spot_state.get("balances", []):
-                    if bal.get("coin") == "USDC":
-                        usdc_spot = float(bal.get("total", "0"))
-                        break
-
-                # Fallback auf Perps, falls Spot 0
-                usdc_perps = float(user_state.get("marginSummary", {}).get("accountValue", "0"))
-
-                usdc = max(usdc_spot, usdc_perps)  # Unified: meist Spot dominiert
-
-                logging.info(f"Erkannter USDC-Wert (Spot: {usdc_spot}, Perps: {usdc_perps}) → verwende {usdc}")
+                usdc = float(user_state.get("marginSummary", {}).get("accountValue", "0"))
                 if usdc <= 0:
                     logging.error("Kein USDC-Balance verfügbar")
                     continue
 
                 usdc_to_use = usdc * size_pct
-                sz = usdc_to_use / price
-                # Sicherheits-Cap für ersten Live-Trade
-                max_usdc_risk = 10.0  # ← z. B. max 10 USDC pro Trade beim Start
-                usdc_to_use = min(usdc_to_use, max_usdc_risk)
+
+                # Sicherheits-Cap (z. B. max 10 USDC pro Trade beim ersten Mal)
+                usdc_to_use = min(usdc_to_use, 10.0)
+
+                # Preis holen (schon oben, aber sicherstellen)
+                if price <= 0:
+                    logging.error(f"Kein Preis verfügbar für {symbol}")
+                    continue
+
+                # Gerundete Größe berechnen
                 sz = usdc_to_use / price
 
-                min_sz = 0.001 if symbol in ["ETH", "BTC"] else 0.01
+                # Asset-Präzision aus Meta holen (fallback 8 Dezimalen)
+                decimals = 8
+                try:
+                    meta = info.meta()
+                    universe = meta.get("universe", [])
+                    asset_info = next((u for u in universe if u.get("name") == symbol), None)
+                    if asset_info:
+                        decimals = asset_info.get("szDecimals", 8)
+                        logging.info(f"{symbol} szDecimals = {decimals}")
+                except Exception as meta_err:
+                    logging.warning(f"Konnte szDecimals nicht holen: {meta_err} → fallback 8 Dezimalen")
+
+                # Runden – jetzt ist usdc_to_use immer definiert
+                sz = round(sz, decimals)
+
+                # Mindestgröße-Check (Hyperliquid lehnt oft < 0.001 ab)
+                min_sz = 0.001 if symbol in ["ETH", "BTC", "SOL"] else 0.01
                 if sz < min_sz:
                     logging.warning(f"Größe {sz:.8f} unter Minimum ({min_sz}) für {symbol} → überspringe")
                     continue
-    
-                logging.info(f"Trade-Plan: {action} {symbol} | sz ≈ {sz:.6f} | price ≈ {price} | lev {leverage}")
 
-                # Market Order senden
+                logging.info(f"Trade-Plan: {action} {symbol} | sz ≈ {sz:.8f} | price ≈ {price} | lev {leverage} | usdc ≈ {usdc_to_use:.2f}")
+
+                # Market Open Order
                 order_result = exchange.market_open(
                     name=symbol,
                     is_buy=is_buy,
                     sz=sz,
                     slippage=0.015
                 )
-
+                
                 logging.info(f"Order-Antwort: {json.dumps(order_result, indent=2)}")
 
                 if order_result.get("status") == "ok":
