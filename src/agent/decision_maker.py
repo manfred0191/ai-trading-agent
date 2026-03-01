@@ -9,28 +9,20 @@ requests_log.setLevel(logging.DEBUG)
 requests_log.propagate = True
 import requests
 import json
-import logging
 from datetime import datetime
 from src.config_loader import CONFIG
-from src.indicators.taapi_client import TAAPIClient
 from urllib.parse import urljoin
+
 
 class TradingAgent:
     """Trading agent focused on momentum trades for volatile altcoins."""
 
     def __init__(self):
-        """Initialize LLM and TAAPI client."""
+        """Initialize LLM client – TAAPI komplett deaktiviert."""
         self.model = CONFIG["llm_model"]
-        self.api_key = CONFIG["openrouter_api_key"]  # das ist jetzt dein Groq-Key
-        # base = CONFIG["openrouter_base_url"]         # https://api.groq.com/openai/v1
-        # self.base_url = f"{base}/chat/completions"
-        # self.taapi = TAAPIClient()
+        self.api_key = CONFIG["openrouter_api_key"]  # jetzt Groq-Key
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
-        # Kommentiere die CONFIG-Zeilen aus
-        # base = CONFIG["openrouter_base_url"].rstrip('/') + '/'   # sicherstellen, dass base mit / endet
-        # self.base_url = urljoin(base, "chat/completions")
-        USE_TAAPI = False
-    
+
     def decide_trade(self, assets, context):
         """Decide for multiple assets in one LLM call."""
         return self._decide(context, assets=assets)
@@ -79,26 +71,6 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
             {"role": "user", "content": user_prompt},
         ]
 
-#        tools = [{
-#            "type": "function",
-#            "function": {
-#                "name": "fetch_taapi_indicator",
-#                "description": "Fetch TAAPI indicator (15m empfohlen). Available: ema, rsi, macd, volume, atr, supertrend, vwap, etc.",
-#                "parameters": {
-#                    "type": "object",
-#                    "properties": {
-#                        "indicator": {"type": "string"},
-#                        "symbol": {"type": "string"},
-#                        "interval": {"type": "string", "default": "15m"},
-#                        "period": {"type": "integer"},
-#                        "backtrack": {"type": "integer", "default": 0},
-#                        "other_params": {"type": "object", "additionalProperties": True},
-#                    },
-#                    "required": ["indicator", "symbol", "interval"]
-#                }
-#            }
-#        }]
-
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -107,9 +79,8 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
         payload = {
             "model": self.model,
             "messages": messages,
-            # "tools": tools,
             "tool_choice": "none",
-            "temperature": 0.4,           # etwas Kreativität, aber nicht zu wild
+            "temperature": 0.4,
             "max_tokens": 1200
         }
 
@@ -118,42 +89,17 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
             logging.info(f"Full LLM endpoint URL (len): {len(self.base_url)} chars")
             logging.info(f"Full LLM endpoint URL (hex dump first 100): {self.base_url[:100].encode('utf-8').hex()}")
             logging.info(f"Using model: {self.model}")
-            logging.info(f"API key prefix: {self.api_key[:10]}...")    # nur zum Check, ob Key da ist
-            print(repr(self.base_url))          # in Logs  
-            print(self.base_url.encode('utf-8').hex())  # hex zeigt jedes Byte  
+            logging.info(f"API key prefix: {self.api_key[:10]}...")
+
+            print(repr(self.base_url))          # in Logs
+            print(self.base_url.encode('utf-8').hex())
+
             resp = requests.post(self.base_url, headers=headers, json=payload, timeout=60)
             resp.raise_for_status()
             resp_json = resp.json()
             message = resp_json["choices"][0]["message"]
 
-            # Tool calls handlen (falls LLM mehr Daten will)
-#            if "tool_calls" in message:
-#                for tc in message["tool_calls"]:
-#                    if tc["function"]["name"] == "fetch_taapi_indicator":
-#                        args = json.loads(tc["function"]["arguments"])
-#                        params = {
-#                            "secret": self.taapi.api_key,
-#                            "exchange": "binance",
-#                            "symbol": args["symbol"],
-#                            "interval": args.get("interval", "15m"),
-#                        }
-                        if "period" in args:
-                            params["period"] = args["period"]
-                        if "backtrack" in args:
-                            params["backtrack"] = args["backtrack"]
-                        params.update(args.get("other_params", {}))
-
-                        ind_resp = requests.get(
-                            f"{self.taapi.base_url}{args['indicator']}",
-                            params=params,
-                            timeout=30
-                        ).json()
-
-                        # Tool-Antwort zurück an LLM schicken würde hier fehlen – 
-                        # für Einfachheit: wir parsen direkt die erste Antwort
-                        # (du kannst später loop hinzufügen, wenn nötig)
-
-            # Output parsen
+            # Keine Tool-Calls mehr → direkt den Content parsen
             content = message.get("content") or "{}"
             try:
                 parsed = json.loads(content)
@@ -167,3 +113,4 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
         except Exception as e:
             logging.error(f"LLM decision failed: {str(e)}")
             return {"reasoning": f"Error during decision: {str(e)}", "trade_decisions": []}
+            
