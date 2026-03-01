@@ -56,7 +56,17 @@ class TradingAgent:
                 logging.info(f"[DRY-RUN] Würde ausführen: {trade}")
             return
 
-        hl_env = os.getenv("HYPERLIQUID_ENVIRONMENT") or "mainnet"
+        # Alte Zeile:
+        # hl_env = os.getenv("HYPERLIQUID_ENVIRONMENT", "testnet")
+        
+        # Neue, strengere Version:
+        hl_env = os.getenv("HYPERLIQUID_ENVIRONMENT")
+        if hl_env is None:
+            logging.error("HYPERLIQUID_ENVIRONMENT ist nicht gesetzt! Abbruch.")
+            return
+        if hl_env not in ("mainnet", "testnet"):
+            logging.error(f"Ungültiger Wert für HYPERLIQUID_ENVIRONMENT: '{hl_env}' → nur 'mainnet' oder 'testnet' erlaubt")
+            return
         base_url = constants.TESTNET_API_URL if hl_env == "testnet" else constants.MAINNET_API_URL
 
         private_key = os.getenv("HYPERLIQUID_PRIVATE_KEY")
