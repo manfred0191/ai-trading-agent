@@ -124,11 +124,29 @@ class TradingAgent:
                     logging.error(f"Kein Preis verfügbar für {symbol}")
                     continue
 
+                # Perps-State (wie bisher)
                 user_state = info.user_state(account_address)
-                logging.info("=== DEBUG: Vollständiger user_state vom Hyperliquid ===")
+                logging.info("=== Perps user_state ===")
                 logging.info(json.dumps(user_state, indent=2))
-                logging.info("=== ENDE DEBUG ===")
-                usdc = float(user_state.get("marginSummary", {}).get("accountValue", "0"))
+
+                # Spot-State hinzufügen
+                spot_state = info.spot_user_state(account_address)
+                logging.info("=== Spot user_state ===")
+                logging.info(json.dumps(spot_state, indent=2))
+
+                # USDC aus Spot nehmen (Unified-Modus: Spot = Trading-Collateral)
+                usdc_spot = 0.0
+                for bal in spot_state.get("balances", []):
+                    if bal.get("coin") == "USDC":
+                        usdc_spot = float(bal.get("total", "0"))
+                        break
+
+                # Fallback auf Perps, falls Spot 0
+                usdc_perps = float(user_state.get("marginSummary", {}).get("accountValue", "0"))
+
+                usdc = max(usdc_spot, usdc_perps)  # Unified: meist Spot dominiert
+
+                logging.info(f"Erkannter USDC-Wert (Spot: {usdc_spot}, Perps: {usdc_perps}) → verwende {usdc}")
                 if usdc <= 0:
                     logging.error("Kein USDC-Balance verfügbar")
                     continue
