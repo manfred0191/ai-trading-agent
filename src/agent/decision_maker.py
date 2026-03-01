@@ -90,7 +90,7 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
         payload = {
             "model": self.model,
             "messages": messages,
-            "tools": tools,
+            # "tools": tools,
             "tool_choice": "auto",
             "temperature": 0.4,           # etwas Kreativität, aber nicht zu wild
             "max_tokens": 1200
