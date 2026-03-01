@@ -122,6 +122,14 @@ class TradingAgent:
 
                 usdc_to_use = usdc * size_pct
                 sz = usdc_to_use / price
+                # Sicherheits-Cap für ersten Live-Trade
+                max_usdc_risk = 10.0  # ← z. B. max 10 USDC pro Trade beim Start
+                usdc_to_use = min(usdc_to_use, max_usdc_risk)
+                sz = usdc_to_use / price
+
+                if sz < 0.001:  # Mindestgröße – anpassen je nach Asset
+                    logging.warning(f"Zu kleine Größe für {symbol} → überspringe")
+                    continue                
 
                 logging.info(f"Trade-Plan: {action} {symbol} | sz ≈ {sz:.6f} | price ≈ {price} | lev {leverage}")
 
