@@ -29,6 +29,7 @@ class TradingAgent:
         # Kommentiere die CONFIG-Zeilen aus
         # base = CONFIG["openrouter_base_url"].rstrip('/') + '/'   # sicherstellen, dass base mit / endet
         # self.base_url = urljoin(base, "chat/completions")
+        USE_TAAPI = False
     
     def decide_trade(self, assets, context):
         """Decide for multiple assets in one LLM call."""
@@ -126,16 +127,16 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
             message = resp_json["choices"][0]["message"]
 
             # Tool calls handlen (falls LLM mehr Daten will)
-            if "tool_calls" in message:
-                for tc in message["tool_calls"]:
-                    if tc["function"]["name"] == "fetch_taapi_indicator":
-                        args = json.loads(tc["function"]["arguments"])
-                        params = {
-                            "secret": self.taapi.api_key,
-                            "exchange": "binance",
-                            "symbol": args["symbol"],
-                            "interval": args.get("interval", "15m"),
-                        }
+#            if "tool_calls" in message:
+#                for tc in message["tool_calls"]:
+#                    if tc["function"]["name"] == "fetch_taapi_indicator":
+#                        args = json.loads(tc["function"]["arguments"])
+#                        params = {
+#                            "secret": self.taapi.api_key,
+#                            "exchange": "binance",
+#                            "symbol": args["symbol"],
+#                            "interval": args.get("interval", "15m"),
+#                        }
                         if "period" in args:
                             params["period"] = args["period"]
                         if "backtrack" in args:
