@@ -414,6 +414,10 @@ def main():
                                     from hyperliquid.exchange import Exchange
                                     from eth_account import Account
                                     private_key = CONFIG.get('private_key')  # oder os.getenv('PRIVATE_KEY')
+                                    logging.info(f"CONFIG['hyperliquid_private_key'] vorhanden? {bool(CONFIG.get('hyperliquid_private_key'))}")
+                                    logging.info(f"CONFIG['hyperliquid_private_key'] Länge: {len(CONFIG.get('hyperliquid_private_key') or '')}")
+                                    logging.info(f"ENV HYPERLIQUID_PRIVATE_KEY: {os.getenv('HYPERLIQUID_PRIVATE_KEY')[:10] if os.getenv('HYPERLIQUID_PRIVATE_KEY') else 'NICHT VORHANDEN'}...")
+
                                     if not private_key:
                                         logging.error("Kein private_key in CONFIG → kann exchange nicht erstellen")
                                         return  # oder raise, je nach Bedarf
