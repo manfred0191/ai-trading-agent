@@ -215,8 +215,18 @@ def _execute_trades(decisions, info, exchange, account_address):
             # Zuerst auf Mindestgröße bringen, dann runden
             sz = max(sz_raw, min_sz)
 
-            # Präzision: 5 Dezimalstellen sind für die meisten Assets sicher
-            sz = round(sz, 5)
+            # Asset-spezifische Präzision (Hyperliquid-Regeln)
+            precision_map = {
+                "BTC": 5,
+                "ETH": 4,
+                "SOL": 2,
+                "BNB": 3,
+                "EIGEN": 1,
+                # Default für andere
+            }
+            precision = precision_map.get(symbol, 5)
+
+            sz = round(sz, precision)
 
             if sz < min_sz:
                 logging.warning(f"Größe {sz:.8f} unter Minimum {min_sz} für {symbol} → überspringe")
@@ -225,11 +235,18 @@ def _execute_trades(decisions, info, exchange, account_address):
             logging.info(f"Trade-Plan: {action} {symbol} | sz = {sz:.8f} (min {min_sz}) | price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f}")
 
             logging.info("=== DEBUG: Bereite market_open vor ===")
+            required_margin = usdc_to_use / leverage
+            logging.info(f"Benötigte Margin für {leverage}x: ≈ {required_margin:.2f} USDC")
+
+            if required_margin > usdc:
+                logging.warning(f"Margin zu niedrig ({required_margin:.2f} > {usdc:.2f}) → skip oder reduziere Leverage")
+                continue            
+
             order_result = exchange.market_open(
                 name=symbol,
                 is_buy=is_buy,
                 sz=sz,
-                slippage=0.015
+                slippage=0.05
             )
             logging.info("=== DEBUG: market_open abgeschlossen ===")
 
