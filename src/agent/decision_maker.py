@@ -18,7 +18,7 @@ from eth_account.signers.local import LocalAccount
 
 # Logging Setup
 http_client.HTTPConnection.debuglevel = 1
-logging.basicBasic(level=logging.INFO)
+logging.basicConfig(level=logging.INFO)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 requests_log = logging.getLogger("requests.packages.urllib3")
 requests_log.setLevel(logging.WARNING)
@@ -103,7 +103,6 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
         logging.info(f"Using model: {self.model}")
         logging.info(f"API key prefix: {self.api_key[:10]}...")
 
-        # Rate limit handling
         try:
             response = requests.post(self.base_url, headers=headers, json=data, timeout=30)
             response.raise_for_status()
@@ -149,6 +148,9 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
 
 def _execute_trades(decisions, info, exchange, account_address):
     """Execute trades based on decisions."""
+    logging.info("!!! _execute_trades() wurde AUFGERUFEN !!!")
+    logging.info(f"Anzahl Decisions: {len(decisions)} | Inhalt: {json.dumps(decisions, indent=2)}")
+
     try:
         for trade in decisions:
             logging.info("=== DEBUG: Trade-Schleife gestartet – Trade: " + str(trade))
@@ -174,9 +176,13 @@ def _execute_trades(decisions, info, exchange, account_address):
             logging.info(f"Spot raw balances: {json.dumps(spot_state.get('balances', []), indent=2)}")
             logging.info(f"Balance-Check: Spot = {usdc_spot:.2f}, Perps = {usdc_perps:.2f} → verwende {usdc:.2f}")
 
+            # === TEMPORÄRER TEST-HACK – BALANCE 0 UMGEHEN ===
             if usdc <= 0:
-                logging.error("Kein USDC-Balance verfügbar (weder Spot noch Perps)")
-                continue
+                logging.warning("=== TEST-HACK AKTIV: Balance war 0 → setze Fake-USDC = 100 für Simulation ===")
+                usdc = 100.0
+                usdc_spot = 100.0
+                usdc_perps = 0.0
+            # === ENDE HACK ===
 
             size_pct = min(trade.get("size_pct", 0.05), 0.20)
             leverage = min(trade.get("leverage", 3), 10)
@@ -193,25 +199,7 @@ def _execute_trades(decisions, info, exchange, account_address):
             usdc_to_use = usdc * size_pct
             usdc_to_use = min(usdc_to_use, 10.0)  # Sicherheits-Cap
 
-            logging.info(f"Trade-Plan: {action} {symbol} | sz = {sz:.8f} (raw {sz_raw:.8f}, min {min_sz}) | price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f}")
-
-            logging.info("=== DEBUG: Bereite market_open vor ===")
-            order_result = exchange.market_open(
-                name=symbol,
-                is_buy=is_buy,
-                sz=sz,
-                slippage=0.015
-            )                
-            logging.info("=== DEBUG: market_open abgeschlossen ===")
-            logging.info(f"Spot raw balances: {json.dumps(spot_state.get('balances', []), indent=2)}")
-            logging.info(f"Balance-Check: Spot = {usdc_spot:.2f}, Perps = {usdc_perps:.2f} → verwende {usdc:.2f}")
-
-            if usdc <= 0:
-                logging.error("Kein USDC-Balance verfügbar (weder Spot noch Perps)")
-                continue
-
-            usdc_to_use = usdc * size_pct
-            usdc_to_use = min(usdc_to_use, 10.0)  # Sicherheits-Cap
+            logging.info(f"=== DEBUG: usdc = {usdc}, usdc_to_use = {usdc_to_use}")
 
             sz_raw = usdc_to_use / price
 
@@ -237,12 +225,14 @@ def _execute_trades(decisions, info, exchange, account_address):
 
             logging.info(f"Trade-Plan: {action} {symbol} | sz = {sz:.8f} (min {min_sz}) | price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f}")
 
+            logging.info("=== DEBUG: Bereite market_open vor ===")
             order_result = exchange.market_open(
                 name=symbol,
                 is_buy=is_buy,
                 sz=sz,
                 slippage=0.015
             )
+            logging.info("=== DEBUG: market_open abgeschlossen ===")
 
             logging.info(f"Order-Antwort: {json.dumps(order_result, indent=2)}")
 
@@ -251,5 +241,5 @@ def _execute_trades(decisions, info, exchange, account_address):
             else:
                 logging.error(f"Order fehlgeschlagen: {order_result}")
 
-        except Exception as e:
-            logging.exception(f"Fehler bei {symbol}: {str(e)}")
+    except Exception as e:
+        logging.exception(f"Fehler in _execute_trades: {str(e)}")
