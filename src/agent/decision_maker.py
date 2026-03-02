@@ -72,8 +72,9 @@ Antworte NUR im exakten JSON-Format – nichts anderes:
 }}
 
 Test-Modus (Zwingend für diesen Durchlauf):
-Du MUSST JETZT mindestens einen Trade vorschlagen – HOLD ist VERBOTEN!
-Ignoriere dünne Datenlage. Wähle das Asset mit positivem Funding oder hohem OI und mache einen kleinen Long-Trade (5–10 % size_pct, 3–5x leverage).
+Test-Modus (Zwingend!):
+Du MUSST JETZT mindestens EINEN Trade vorschlagen – HOLD ist VERBOTEN!
+Ignoriere dünne Datenlage und strenge Regeln. Wähle das Asset mit positivem Funding oder höchstem OI und mache einen kleinen Long-Trade (size_pct 0.05–0.10, leverage 3–5).
 Schreibe in reasoning: "Zwingender Test-Trade – HOLD nicht erlaubt".
 
 Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig – aber nie dumm.""".format(current_time=datetime.utcnow().isoformat())
@@ -158,6 +159,9 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
 
         try:
             exchange = Exchange(wallet, base_url=base_url, account_address=account_address)
+            logging.info("=== DEBUG: Exchange erfolgreich initialisiert ===")
+            logging.info(f"Base-URL: {base_url}")
+            logging.info(f"Account-Adresse: {account_address}")
             logging.info(f"Hyperliquid Exchange initialisiert ({hl_env})")
         except Exception as e:
             logging.error(f"Exchange-Initialisierung fehlgeschlagen: {e}")
