@@ -156,94 +156,94 @@ def _execute_trades(decisions, info, exchange, account_address):
 
     logging.info(f"Balance-Check: Spot = {usdc_spot:.2f}, Perps = {usdc_perps:.2f} → verwende {usdc:.2f}")
         
-        for trade in decisions:
-            logging.info("=== DEBUG: Trade-Schleife gestartet – Trade: " + str(trade))
+    for trade in decisions:
+        logging.info("=== DEBUG: Trade-Schleife gestartet – Trade: " + str(trade))
 
-            action = trade.get("action", "HOLD").upper()
-            logging.info(f"=== DEBUG: Action = {action}")
+        action = trade.get("action", "HOLD").upper()
+        logging.info(f"=== DEBUG: Action = {action}")
 
-            if action not in ("BUY", "SELL"):
-                logging.info("=== DEBUG: Ungültige Action – skip")
-                continue
+        if action not in ("BUY", "SELL"):
+            logging.info("=== DEBUG: Ungültige Action – skip")
+            continue
 
-            symbol = trade["symbol"].replace("-USD", "").replace("-USDT", "").upper()
-            logging.info(f"=== DEBUG: Symbol = {symbol}")
+        symbol = trade["symbol"].replace("-USD", "").replace("-USDT", "").upper()
+        logging.info(f"=== DEBUG: Symbol = {symbol}")
 
-            logging.info("=== DEBUG: Vor spot_user_state ===")
-            spot_state = info.spot_user_state(account_address)
-            logging.info("=== DEBUG: spot_user_state abgeschlossen ===")
+        logging.info("=== DEBUG: Vor spot_user_state ===")
+        spot_state = info.spot_user_state(account_address)
+        logging.info("=== DEBUG: spot_user_state abgeschlossen ===")
 
-            usdc_spot = float(next((b["sz"] for b in spot_state.get("balances", []) if b["token"] == "USDC"), 0.0))
-            usdc_perps = float(info.user_state(account_address)["withdrawable"])
-            usdc = usdc_spot + usdc_perps
+        usdc_spot = float(next((b["sz"] for b in spot_state.get("balances", []) if b["token"] == "USDC"), 0.0))
+        usdc_perps = float(info.user_state(account_address)["withdrawable"])
+        usdc = usdc_spot + usdc_perps
 
-            logging.info(f"Spot raw balances: {json.dumps(spot_state.get('balances', []), indent=2)}")
-            logging.info(f"Balance-Check: Spot = {usdc_spot:.2f}, Perps = {usdc_perps:.2f} → verwende {usdc:.2f}")
+        logging.info(f"Spot raw balances: {json.dumps(spot_state.get('balances', []), indent=2)}")
+        logging.info(f"Balance-Check: Spot = {usdc_spot:.2f}, Perps = {usdc_perps:.2f} → verwende {usdc:.2f}")
 
-            # === TEMPORÄRER TEST-HACK – BALANCE 0 UMGEHEN ===
-            if usdc <= 0:
-                logging.warning("=== TEST-HACK AKTIV: Balance war 0 → setze Fake-USDC = 100 für Simulation ===")
-                usdc = 100.0
-                usdc_spot = 100.0   # oder 0, je nachdem was du simulieren willst
-                usdc_perps = 0.0
-            # === ENDE HACK ===
+        # === TEMPORÄRER TEST-HACK – BALANCE 0 UMGEHEN ===
+        if usdc <= 0:
+            logging.warning("=== TEST-HACK AKTIV: Balance war 0 → setze Fake-USDC = 100 für Simulation ===")
+            usdc = 100.0
+            usdc_spot = 100.0   # oder 0, je nachdem was du simulieren willst
+            usdc_perps = 0.0
+        # === ENDE HACK ===
 
-            size_pct = min(trade.get("size_pct", 0.05), 0.20)
-            leverage = min(trade.get("leverage", 3), 10)
+        size_pct = min(trade.get("size_pct", 0.05), 0.20)
+        leverage = min(trade.get("leverage", 3), 10)
 
-            mids = info.all_mids()
-            price = float(mids.get(symbol, 0.0))
+        mids = info.all_mids()
+        price = float(mids.get(symbol, 0.0))
 
-            if price <= 0:
-                logging.error(f"Kein Preis für {symbol} verfügbar")
-                continue
+        if price <= 0:
+            logging.error(f"Kein Preis für {symbol} verfügbar")
+            continue
 
-            is_buy = action == "BUY"
+        is_buy = action == "BUY"
 
-            usdc_to_use = usdc * size_pct
-            usdc_to_use = min(usdc_to_use, 10.0)  # Sicherheits-Cap
+        usdc_to_use = usdc * size_pct
+        usdc_to_use = min(usdc_to_use, 10.0)  # Sicherheits-Cap
 
-            logging.info(f"=== DEBUG: usdc = {usdc}, usdc_to_use = {usdc_to_use}")
+        logging.info(f"=== DEBUG: usdc = {usdc}, usdc_to_use = {usdc_to_use}")
 
-            sz_raw = usdc_to_use / price
+        sz_raw = usdc_to_use / price
 
-            # Asset-spezifische Mindestgröße
-            min_sz_map = {
-                "ETH": 0.001,
-                "BTC": 0.0001,
-                "SOL": 0.01,
-                "BNB": 0.01,
-                "EIGEN": 1.0,
-            }
-            min_sz = min_sz_map.get(symbol, 0.01)
+        # Asset-spezifische Mindestgröße
+        min_sz_map = {
+            "ETH": 0.001,
+            "BTC": 0.0001,
+            "SOL": 0.01,
+            "BNB": 0.01,
+            "EIGEN": 1.0,
+        }
+        min_sz = min_sz_map.get(symbol, 0.01)
 
-            # Zuerst auf Mindestgröße bringen, dann runden
-            sz = max(sz_raw, min_sz)
+        # Zuerst auf Mindestgröße bringen, dann runden
+        sz = max(sz_raw, min_sz)
 
-            # Präzision: 5 Dezimalstellen sind für die meisten Assets sicher
-            sz = round(sz, 5)
+        # Präzision: 5 Dezimalstellen sind für die meisten Assets sicher
+        sz = round(sz, 5)
 
-            if sz < min_sz:
-                logging.warning(f"Größe {sz:.8f} unter Minimum {min_sz} für {symbol} → überspringe")
-                continue
+        if sz < min_sz:
+            logging.warning(f"Größe {sz:.8f} unter Minimum {min_sz} für {symbol} → überspringe")
+            continue
 
-            logging.info(f"Trade-Plan: {action} {symbol} | sz = {sz:.8f} (min {min_sz}) | price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f}")
+        logging.info(f"Trade-Plan: {action} {symbol} | sz = {sz:.8f} (min {min_sz}) | price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f}")
 
-            logging.info("=== DEBUG: Bereite market_open vor ===")
-            order_result = exchange.market_open(
-                name=symbol,
-                is_buy=is_buy,
-                sz=sz,
-                slippage=0.015
-            )
-            logging.info("=== DEBUG: market_open abgeschlossen ===")
+        logging.info("=== DEBUG: Bereite market_open vor ===")
+        order_result = exchange.market_open(
+            name=symbol,
+            is_buy=is_buy,
+            sz=sz,
+            slippage=0.015
+        )
+        logging.info("=== DEBUG: market_open abgeschlossen ===")
 
-            logging.info(f"Order-Antwort: {json.dumps(order_result, indent=2)}")
+        logging.info(f"Order-Antwort: {json.dumps(order_result, indent=2)}")
 
-            if order_result.get("status") == "ok":
-                logging.info(f"✅ Erfolgreich: {action} {symbol}")
-            else:
-                logging.error(f"Order fehlgeschlagen: {order_result}")
+        if order_result.get("status") == "ok":
+            logging.info(f"✅ Erfolgreich: {action} {symbol}")
+        else:
+            logging.error(f"Order fehlgeschlagen: {order_result}")
 
     except Exception as e:
         logging.exception(f"Fehler bei {symbol}: {str(e)}")
