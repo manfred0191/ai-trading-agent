@@ -331,6 +331,12 @@ def main():
 
             try:
                 outputs = agent.decide_trade(args.assets, context)
+                if 'info' not in globals() and 'info' not in locals():
+                    from hyperliquid.info import Info
+                    from hyperliquid.utils import constants
+                    info = Info(constants.MAINNET_API_URL, skip_ws=True)  # oder TESTNET je nach Umgebung
+                    logging.info("Info-Objekt neu erstellt (Fallback)")                
+
                 # === NEU: Trade-Entscheidungen ausführen ===
                 if outputs and isinstance(outputs, tuple) and len(outputs) >= 1:
                     decisions, reasoning = outputs  # unpack, falls es (decisions, reasoning) zurückgibt
