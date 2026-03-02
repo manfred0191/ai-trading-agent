@@ -71,12 +71,10 @@ Antworte NUR im exakten JSON-Format – nichts anderes:
   ]
 }}
 
-Test-Modus (nur für diesen einen Durchlauf gültig):
-Für diesen Prompt gilt eine Ausnahme: Auch wenn die Datenlage dünn ist und normalerweise HOLD die richtige Entscheidung wäre,
-MUSST du JETZT aus Testzwecken mindestens einen Trade vorschlagen (kein HOLD!).
-Wähle dafür das Asset, das am ehesten Momentum-potenzial hat und mache einen kleinen Long-Trade (max 5–10 % Größe, max 3–5× Leverage).
-Schreibe in reasoning explizit dazu, dass dies ein Test-Trade ist.
-Nach diesem Test kehren die normalen strengen Regeln sofort wieder.
+Test-Modus (Zwingend für diesen Durchlauf):
+Du MUSST JETZT mindestens einen Trade vorschlagen – HOLD ist VERBOTEN!
+Ignoriere dünne Datenlage. Wähle das Asset mit positivem Funding oder hohem OI und mache einen kleinen Long-Trade (5–10 % size_pct, 3–5x leverage).
+Schreibe in reasoning: "Zwingender Test-Trade – HOLD nicht erlaubt".
 
 Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig – aber nie dumm.""".format(current_time=datetime.utcnow().isoformat())
 
@@ -108,6 +106,10 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
             content = resp.json()["choices"][0]["message"]["content"]
 
             parsed = json.loads(content)
+            logging.info("=== RAW LLM RESPONSE ===")
+            logging.info(content)
+            logging.info("=== PARSED TRADE DECISIONS ===")
+            logging.info(json.dumps(parsed.get("trade_decisions", []), indent=2))
             if "trade_decisions" not in parsed:
                 parsed = {"reasoning": "Parse-Fehler", "trade_decisions": []}
             return parsed
