@@ -99,43 +99,48 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
             "max_tokens": 1200,
         }
 
-        logging.info(f"Full LLM endpoint URL (repr): {repr(self.base_url)}")
-        logging.info(f"Using model: {self.model}")
-        logging.info(f"API key prefix: {self.api_key[:10]}...")
+        logging.info(f"LLM call started – model: {self.model}")
 
-        # Rate limit handling
         try:
-            response = requests.post(self.base_url, headers=headers, json=data)
+            response = requests.post(self.base_url, headers=headers, json=data, timeout=30)
             response.raise_for_status()
         except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 429:
+            status = e.response.status_code if e.response else 0
+            if status == 429:
                 retry_after = int(e.response.headers.get('retry-after', 60))
-                logging.warning(f"Groq Rate-Limit 429 – warte {retry_after} Sekunden...")
-                time.sleep(retry_after + 10)  # +10s Puffer
-                # Rekursiver Retry (max 2x – um Endlosschleife zu vermeiden)
-                return self._decide(context, assets)
-            raise
+                logging.warning(f"Groq 429 Rate Limit – retry-after: {retry_after}s – SKIP THIS RUN")
+                # KEIN sleep mehr – einfach abbrechen, damit der Bot nicht hängt
+                return [], "Rate limit hit – no decision this cycle"
+            elif status >= 500:
+                logging.error(f"Groq server error {status} – skipping")
+                return [], f"Groq server error {status}"
+            else:
+                logging.error(f"Unexpected HTTP error: {status} – {str(e)}")
+                raise
+        except requests.exceptions.Timeout:
+            logging.error("Groq request timed out – skipping")
+            return [], "Timeout"
+        except Exception as e:
+            logging.exception(f"LLM request failed: {str(e)}")
+            return [], f"Request error: {str(e)}"
 
         content = response.json()["choices"][0]["message"]["content"]
         logging.info("=== RAW LLM RESPONSE ===")
-        logging.info(content)
+        logging.info(content[:500] + "..." if len(content) > 500 else content)
 
         try:
             decision = json.loads(content)
             decisions = decision.get("trade_decisions", [])
-            reasoning = decision.get("reasoning", "Kein Reasoning verfügbar")
+            reasoning = decision.get("reasoning", "Kein Reasoning")
 
             logging.info("=== PARSED TRADE DECISIONS ===")
             logging.info(json.dumps(decisions, indent=2))
 
-            logging.info(f"LLM reasoning summary: {reasoning[:200]}..." if len(reasoning) > 200 else reasoning)
-
             return decisions, reasoning
         except json.JSONDecodeError as e:
-            logging.error(f"JSON-Parse-Fehler: {str(e)}")
-            logging.error(f"Raw-Content: {content}")
-            return [], "Parse-Fehler"
-
+            logging.error(f"JSON parse failed: {str(e)}")
+            logging.error(f"Raw content: {content[:300]}...")
+            return [], "JSON parse error"
 
 def _execute_trades(decisions, info, exchange, account_address):
     """Execute trades based on decisions."""
