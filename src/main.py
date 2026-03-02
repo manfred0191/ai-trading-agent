@@ -2,6 +2,7 @@
 import logging
 from src.config_loader import CONFIG           # ← DAS muss vor den Logging-Zeilen stehen!
 from src.agent.decision_maker import TradingAgent    # oder was du sonst importierst
+from src.agent.decision_maker import _execute_trades   # oder wo auch immer die Funktion definiert ist
 
 logging.basicConfig(level=logging.INFO)
 
