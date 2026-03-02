@@ -154,6 +154,10 @@ def _execute_trades(decisions, info, exchange, account_address):
 
             if usdc <= 0:
                 logging.error("Kein USDC-Balance verfügbar (weder Spot noch Perps)")
+                logging.warning("Balance ist 0 → setze Fake-Balance für Test-Trades auf 100 USDC")
+                usdc = 100.0
+                usdc_spot = 100.0
+                usdc_perps = 0.0                
                 continue
 
             size_pct = min(trade.get("size_pct", 0.05), 0.20)
