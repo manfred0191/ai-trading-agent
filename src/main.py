@@ -351,7 +351,7 @@ def main():
                     wallet: LocalAccount = Account.from_key(private_key)
                     
                     info = Info(constants.MAINNET_API_URL, skip_ws=True)  # falls info auch fehlt
-                    exchange = Exchange(wallet, base_url=constants.MAINNET_API_URL, skip_ws=True)
+                    exchange = Exchange(wallet)
                     logging.info("Exchange-Objekt als Fallback neu erstellt")
                     logging.info(f"CONFIG['hyperliquid_private_key'] vorhanden? {bool(CONFIG.get('hyperliquid_private_key'))}")
                     logging.info(f"CONFIG['hyperliquid_private_key'] Länge: {len(CONFIG.get('hyperliquid_private_key') or '')}")
@@ -422,7 +422,7 @@ def main():
                                         logging.error("Kein private_key in CONFIG → kann exchange nicht erstellen")
                                         return  # oder raise, je nach Bedarf
                                     wallet = Account.from_key(private_key)
-                                    exchange = Exchange(wallet, base_url=constants.MAINNET_API_URL, skip_ws=True)
+                                    exchange = Exchange(wallet)
 
                                 account_address = wallet.address if 'wallet' in locals() else "0x1249911bE0E95d2E1eC625CF32D44b5898d33dCB"  # Fallback-Adresse
 
