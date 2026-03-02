@@ -407,7 +407,7 @@ def main():
                                     logging.warning("info nicht definiert → erstelle Fallback")
                                     from hyperliquid.info import Info
                                     from hyperliquid.utils import constants
-                                    info = Info(constants.MAINNET_API_URL, skip_ws=True)  # oder TESTNET, falls du testest
+                                    info = Info(base_url=constants.MAINNET_API_URL, skip_ws=True)  # WICHTIG: base_url als Keyword
 
                                 if 'exchange' not in locals() or exchange is None:
                                     logging.warning("exchange nicht definiert → erstelle Fallback")
@@ -422,7 +422,7 @@ def main():
                                         logging.error("Kein private_key in CONFIG → kann exchange nicht erstellen")
                                         return  # oder raise, je nach Bedarf
                                     wallet = Account.from_key(private_key)
-                                    exchange = Exchange(wallet, info, constants.MAINNET_API_URL)
+                                    exchange = Exchange(wallet, info)
 
                                 account_address = wallet.address if 'wallet' in locals() else "0x1249911bE0E95d2E1eC625CF32D44b5898d33dCB"  # Fallback-Adresse
 
