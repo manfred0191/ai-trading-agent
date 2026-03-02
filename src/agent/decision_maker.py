@@ -152,13 +152,13 @@ def _execute_trades(decisions, info, exchange, account_address):
             logging.info(f"Spot raw balances: {json.dumps(spot_state.get('balances', []), indent=2)}")
             logging.info(f"Balance-Check: Spot = {usdc_spot:.2f}, Perps = {usdc_perps:.2f} → verwende {usdc:.2f}")
 
+            # === TEMPORÄRER TEST-HACK – BALANCE 0 UMGEHEN ===
             if usdc <= 0:
-                logging.error("Kein USDC-Balance verfügbar (weder Spot noch Perps)")
-                logging.warning("Balance ist 0 → setze Fake-Balance für Test-Trades auf 100 USDC")
+                logging.warning("=== TEST-HACK AKTIV: Balance war 0 → setze Fake-USDC = 100 für Simulation ===")
                 usdc = 100.0
-                usdc_spot = 100.0
-                usdc_perps = 0.0                
-                continue
+                usdc_spot = 100.0   # oder 0, je nachdem was du simulieren willst
+                usdc_perps = 0.0
+            # === ENDE HACK ===
 
             size_pct = min(trade.get("size_pct", 0.05), 0.20)
             leverage = min(trade.get("leverage", 3), 10)
