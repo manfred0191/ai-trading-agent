@@ -39,17 +39,6 @@ class TradingAgent:
         return self._decide(context, assets=assets)
 
     def _decide(self, context, assets):
-        try:
-            response = requests.post(...)
-            response.raise_for_status()
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 429:
-                retry_after = int(e.response.headers.get('retry-after', 60))
-                logging.warning(f"Groq Rate-Limit 429 – warte {retry_after} Sekunden...")
-                time.sleep(retry_after + 10)  # +10s Puffer
-                # Optional: 1–2 weitere Versuche
-                return self._decide(context, assets)  # rekursiv, aber max 2x
-            raise        
         """Send request to LLM and parse decision."""
         system_prompt = """Du bist der smarteste, disziplinierteste und profitabelste Crypto-Trader der Welt. 
 Dein einziger Job ist es, auf Hyperliquid möglichst viel Geld zu verdienen.
@@ -114,8 +103,18 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
         logging.info(f"Using model: {self.model}")
         logging.info(f"API key prefix: {self.api_key[:10]}...")
 
-        response = requests.post(self.base_url, headers=headers, json=data)
-        response.raise_for_status()
+        # Rate limit handling
+        try:
+            response = requests.post(self.base_url, headers=headers, json=data)
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 429:
+                retry_after = int(e.response.headers.get('retry-after', 60))
+                logging.warning(f"Groq Rate-Limit 429 – warte {retry_after} Sekunden...")
+                time.sleep(retry_after + 10)  # +10s Puffer
+                # Rekursiver Retry (max 2x – um Endlosschleife zu vermeiden)
+                return self._decide(context, assets)
+            raise
 
         content = response.json()["choices"][0]["message"]["content"]
         logging.info("=== RAW LLM RESPONSE ===")
@@ -137,113 +136,101 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
             logging.error(f"Raw-Content: {content}")
             return [], "Parse-Fehler"
 
+
 def _execute_trades(decisions, info, exchange, account_address):
     """Execute trades based on decisions."""
+    logging.info("!!! _execute_trades() wurde AUFGERUFEN !!!")
+    logging.info(f"Anzahl Decisions: {len(decisions)} | Inhalt: {json.dumps(decisions, indent=2)}")
+
     try:
-        spot_state = info.spot_user_state(account_address)
-        usdc_spot = float(next((b["sz"] for b in spot_state.get("balances", []) if b["token"] == "USDC"), 0.0))
-        usdc_perps = float(info.user_state(account_address)["withdrawable"])
-        usdc = usdc_spot + usdc_perps
-    except Exception as e:
-        logging.error(f"Balance-Abfrage fehlgeschlagen: {str(e)}")
-        usdc = 0.0
+        for trade in decisions:
+            logging.info("=== DEBUG: Trade-Schleife gestartet – Trade: " + str(trade))
 
-    if usdc <= 0:
-        logging.warning("=== TEST-HACK AKTIV: Balance war 0 → setze Fake-USDC = 100 ===")
-        usdc = 100.0
-        usdc_spot = 100.0
-        usdc_perps = 0.0
+            action = trade.get("action", "HOLD").upper()
+            logging.info(f"=== DEBUG: Action = {action}")
 
-    logging.info(f"Balance-Check: Spot = {usdc_spot:.2f}, Perps = {usdc_perps:.2f} → verwende {usdc:.2f}")
-        
-    for trade in decisions:
-        logging.info("=== DEBUG: Trade-Schleife gestartet – Trade: " + str(trade))
+            if action not in ("BUY", "SELL"):
+                logging.info("=== DEBUG: Ungültige Action – skip")
+                continue
 
-        action = trade.get("action", "HOLD").upper()
-        logging.info(f"=== DEBUG: Action = {action}")
+            symbol = trade["symbol"].replace("-USD", "").replace("-USDT", "").upper()
+            logging.info(f"=== DEBUG: Symbol = {symbol}")
 
-        if action not in ("BUY", "SELL"):
-            logging.info("=== DEBUG: Ungültige Action – skip")
-            continue
+            logging.info("=== DEBUG: Vor spot_user_state ===")
+            spot_state = info.spot_user_state(account_address)
+            logging.info("=== DEBUG: spot_user_state abgeschlossen ===")
 
-        symbol = trade["symbol"].replace("-USD", "").replace("-USDT", "").upper()
-        logging.info(f"=== DEBUG: Symbol = {symbol}")
+            usdc_spot = float(next((b["sz"] for b in spot_state.get("balances", []) if b["token"] == "USDC"), 0.0))
+            usdc_perps = float(info.user_state(account_address)["withdrawable"])
+            usdc = usdc_spot + usdc_perps
 
-        logging.info("=== DEBUG: Vor spot_user_state ===")
-        spot_state = info.spot_user_state(account_address)
-        logging.info("=== DEBUG: spot_user_state abgeschlossen ===")
+            logging.info(f"Spot raw balances: {json.dumps(spot_state.get('balances', []), indent=2)}")
+            logging.info(f"Balance-Check: Spot = {usdc_spot:.2f}, Perps = {usdc_perps:.2f} → verwende {usdc:.2f}")
 
-        usdc_spot = float(next((b["sz"] for b in spot_state.get("balances", []) if b["token"] == "USDC"), 0.0))
-        usdc_perps = float(info.user_state(account_address)["withdrawable"])
-        usdc = usdc_spot + usdc_perps
+            # === TEMPORÄRER TEST-HACK – BALANCE 0 UMGEHEN ===
+            if usdc <= 0:
+                logging.warning("=== TEST-HACK AKTIV: Balance war 0 → setze Fake-USDC = 100 für Simulation ===")
+                usdc = 100.0
+                usdc_spot = 100.0   # oder 0, je nachdem was du simulieren willst
+                usdc_perps = 0.0
+            # === ENDE HACK ===
 
-        logging.info(f"Spot raw balances: {json.dumps(spot_state.get('balances', []), indent=2)}")
-        logging.info(f"Balance-Check: Spot = {usdc_spot:.2f}, Perps = {usdc_perps:.2f} → verwende {usdc:.2f}")
+            size_pct = min(trade.get("size_pct", 0.05), 0.20)
+            leverage = min(trade.get("leverage", 3), 10)
 
-        # === TEMPORÄRER TEST-HACK – BALANCE 0 UMGEHEN ===
-        if usdc <= 0:
-            logging.warning("=== TEST-HACK AKTIV: Balance war 0 → setze Fake-USDC = 100 für Simulation ===")
-            usdc = 100.0
-            usdc_spot = 100.0   # oder 0, je nachdem was du simulieren willst
-            usdc_perps = 0.0
-        # === ENDE HACK ===
+            mids = info.all_mids()
+            price = float(mids.get(symbol, 0.0))
 
-        size_pct = min(trade.get("size_pct", 0.05), 0.20)
-        leverage = min(trade.get("leverage", 3), 10)
+            if price <= 0:
+                logging.error(f"Kein Preis für {symbol} verfügbar")
+                continue
 
-        mids = info.all_mids()
-        price = float(mids.get(symbol, 0.0))
+            is_buy = action == "BUY"
 
-        if price <= 0:
-            logging.error(f"Kein Preis für {symbol} verfügbar")
-            continue
+            usdc_to_use = usdc * size_pct
+            usdc_to_use = min(usdc_to_use, 10.0)  # Sicherheits-Cap
 
-        is_buy = action == "BUY"
+            logging.info(f"=== DEBUG: usdc = {usdc}, usdc_to_use = {usdc_to_use}")
 
-        usdc_to_use = usdc * size_pct
-        usdc_to_use = min(usdc_to_use, 10.0)  # Sicherheits-Cap
+            sz_raw = usdc_to_use / price
 
-        logging.info(f"=== DEBUG: usdc = {usdc}, usdc_to_use = {usdc_to_use}")
+            # Asset-spezifische Mindestgröße
+            min_sz_map = {
+                "ETH": 0.001,
+                "BTC": 0.0001,
+                "SOL": 0.01,
+                "BNB": 0.01,
+                "EIGEN": 1.0,
+            }
+            min_sz = min_sz_map.get(symbol, 0.01)
 
-        sz_raw = usdc_to_use / price
+            # Zuerst auf Mindestgröße bringen, dann runden
+            sz = max(sz_raw, min_sz)
 
-        # Asset-spezifische Mindestgröße
-        min_sz_map = {
-            "ETH": 0.001,
-            "BTC": 0.0001,
-            "SOL": 0.01,
-            "BNB": 0.01,
-            "EIGEN": 1.0,
-        }
-        min_sz = min_sz_map.get(symbol, 0.01)
+            # Präzision: 5 Dezimalstellen sind für die meisten Assets sicher
+            sz = round(sz, 5)
 
-        # Zuerst auf Mindestgröße bringen, dann runden
-        sz = max(sz_raw, min_sz)
+            if sz < min_sz:
+                logging.warning(f"Größe {sz:.8f} unter Minimum {min_sz} für {symbol} → überspringe")
+                continue
 
-        # Präzision: 5 Dezimalstellen sind für die meisten Assets sicher
-        sz = round(sz, 5)
+            logging.info(f"Trade-Plan: {action} {symbol} | sz = {sz:.8f} (min {min_sz}) | price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f}")
 
-        if sz < min_sz:
-            logging.warning(f"Größe {sz:.8f} unter Minimum {min_sz} für {symbol} → überspringe")
-            continue
+            logging.info("=== DEBUG: Bereite market_open vor ===")
+            order_result = exchange.market_open(
+                name=symbol,
+                is_buy=is_buy,
+                sz=sz,
+                slippage=0.015
+            )
+            logging.info("=== DEBUG: market_open abgeschlossen ===")
 
-        logging.info(f"Trade-Plan: {action} {symbol} | sz = {sz:.8f} (min {min_sz}) | price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f}")
+            logging.info(f"Order-Antwort: {json.dumps(order_result, indent=2)}")
 
-        logging.info("=== DEBUG: Bereite market_open vor ===")
-        order_result = exchange.market_open(
-            name=symbol,
-            is_buy=is_buy,
-            sz=sz,
-            slippage=0.015
-        )
-        logging.info("=== DEBUG: market_open abgeschlossen ===")
-
-        logging.info(f"Order-Antwort: {json.dumps(order_result, indent=2)}")
-
-        if order_result.get("status") == "ok":
-            logging.info(f"✅ Erfolgreich: {action} {symbol}")
-        else:
-            logging.error(f"Order fehlgeschlagen: {order_result}")
+            if order_result.get("status") == "ok":
+                logging.info(f"✅ Erfolgreich: {action} {symbol}")
+            else:
+                logging.error(f"Order fehlgeschlagen: {order_result}")
 
     except Exception as e:
         logging.exception(f"Fehler bei {symbol}: {str(e)}")
