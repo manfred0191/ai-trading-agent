@@ -337,6 +337,20 @@ def main():
                     info = Info(constants.MAINNET_API_URL, skip_ws=True)  # oder TESTNET je nach Umgebung
                     logging.info("Info-Objekt neu erstellt (Fallback)")                
 
+                # Fallback: exchange erstellen, falls nicht definiert
+                if 'exchange' not in locals() and 'exchange' not in globals():
+                    from hyperliquid.exchange import Exchange
+                    from hyperliquid.utils import constants
+                    from eth_account import Account
+                    
+                    # Wallet aus Config oder Hardcode (für Test)
+                    private_key = CONFIG.get('private_key')  # oder os.getenv('PRIVATE_KEY')
+                    wallet: LocalAccount = Account.from_key(private_key)
+                    
+                    info = Info(constants.MAINNET_API_URL, skip_ws=True)  # falls info auch fehlt
+                    exchange = Exchange(wallet, info, constants.MAINNET_API_URL)
+                    logging.info("Exchange-Objekt als Fallback neu erstellt")
+    
                 # === NEU: Trade-Entscheidungen ausführen ===
                 if outputs and isinstance(outputs, tuple) and len(outputs) >= 1:
                     decisions, reasoning = outputs  # unpack, falls es (decisions, reasoning) zurückgibt
