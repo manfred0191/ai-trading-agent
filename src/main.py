@@ -347,7 +347,7 @@ def main():
                     from eth_account import Account
                     
                     # Wallet aus Config oder Hardcode (für Test)
-                    private_key = CONFIG.get('private_key')  # oder os.getenv('PRIVATE_KEY')
+                    private_key = CONFIG.get('hyperliquid_private_key')  # oder os.getenv('PRIVATE_KEY')
                     wallet: LocalAccount = Account.from_key(private_key)
                     
                     info = Info(constants.MAINNET_API_URL, skip_ws=True)  # falls info auch fehlt
@@ -413,7 +413,7 @@ def main():
                                     logging.warning("exchange nicht definiert → erstelle Fallback")
                                     from hyperliquid.exchange import Exchange
                                     from eth_account import Account
-                                    private_key = CONFIG.get('private_key')  # oder os.getenv('PRIVATE_KEY')
+                                    private_key = CONFIG.get('hyperliquid_private_key')  # oder os.getenv('PRIVATE_KEY')
                                     logging.info(f"CONFIG['hyperliquid_private_key'] vorhanden? {bool(CONFIG.get('hyperliquid_private_key'))}")
                                     logging.info(f"CONFIG['hyperliquid_private_key'] Länge: {len(CONFIG.get('hyperliquid_private_key') or '')}")
                                     logging.info(f"ENV HYPERLIQUID_PRIVATE_KEY: {os.getenv('HYPERLIQUID_PRIVATE_KEY')[:10] if os.getenv('HYPERLIQUID_PRIVATE_KEY') else 'NICHT VORHANDEN'}...")
