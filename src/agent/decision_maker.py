@@ -27,15 +27,94 @@ class TradingAgent:
     """Trading agent focused on momentum trades for volatile altcoins."""
 
     def __init__(self):
+        """Initialize LLM client – TAAPI komplett deaktiviert."""
         self.model = CONFIG["llm_model"]
-        self.api_key = CONFIG["openrouter_api_key"]
+        self.api_key = CONFIG["openrouter_api_key"]  # jetzt Groq-Key
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
 
     def decide_trade(self, assets, context):
-        decision = self._decide(context, assets=assets)
-        if decision.get("trade_decisions"):
-            self._execute_trades(decision)
-        return decision
+        """Decide for multiple assets in one LLM call."""
+        return self._decide(context, assets=assets)
+
+    def _decide(self, context, assets):
+        """Send request to LLM and parse decision."""
+        system_prompt = """Du bist der smarteste, disziplinierteste und profitabelste Crypto-Trader der Welt. 
+Dein einziger Job ist es, auf Hyperliquid möglichst viel Geld zu verdienen.
+
+Regeln, an die du dich 100 % hältst:
+- Nur Momentum-Trades auf dem 15-Minuten-Timeframe.
+- Finde volatile Altcoins (hohe Volatilität, steigendes Volume, Breakouts, starke Moves).
+- Maximal 10x Leverage – nie mehr!
+- Check alle 15 Minuten.
+- Nur Longs bei starkem Momentum (keine Shorts, es sei denn extrem klares Setup).
+- Position: maximal 20 % des aktuellen Balances pro Trade.
+- Kein Gambling – nur high-probability Setups mit klarem Edge (mind. 2–3 konfluente Signale).
+- Wenn nichts Gutes da ist → HOLD und warte geduldig.
+- Sei extrem selektiv: Lieber weniger Trades pro Tag als schlechte Trades.
+
+Wichtig: Du hast KEINEN Zugriff auf Echtzeit-Indikatoren (RSI, EMA, MACD, Volume etc.) oder externe APIs wie TAAPI. 
+Entscheide ausschließlich auf Basis des bereitgestellten Kontexts, allgemeinem Markt-Wissen und den strengen Regeln oben.
+Wenn der Kontext keine klaren Momentum-Signale enthält → HOLD.
+
+Antworte NUR im exakten JSON-Format – nichts anderes:
+{{
+  "reasoning": "Deine ausführliche Schritt-für-Schritt-Analyse hier (sei sehr detailliert)",
+  "trade_decisions": [
+    {{
+      "action": "BUY" | "SELL" | "HOLD",
+      "symbol": "PEPE-USD",
+      "leverage": 7,
+      "size_pct": 0.04,
+      "reason": "kurze, klare Begründung"
+    }},
+    ... (einer pro Asset, oder leer wenn HOLD für alle)
+  ]
+}}
+
+Test-Modus (nur für diesen einen Durchlauf gültig):
+Für diesen Prompt gilt eine Ausnahme: Auch wenn die Datenlage dünn ist und normalerweise HOLD die richtige Entscheidung wäre,
+darfst du JETZT aus Testzwecken mindestens einen Trade vorschlagen.
+Wähle dafür das Asset, das am ehesten Momentum-potenzial hat und mache einen kleinen Long-Trade (max 5–10 % Größe, max 3–5× Leverage).
+Schreibe in reasoning explizit dazu, dass dies ein Test-Trade ist.
+Nach diesem Test kehren die normalen strengen Regeln sofort wieder.
+
+Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig – aber nie dumm.""".format(current_time=datetime.utcnow().isoformat())
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": context},
+        ]
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "tool_choice": "none",
+            "temperature": 0.4,
+            "max_tokens": 1200
+        }
+
+        try:
+            logging.info(f"Full LLM endpoint URL (repr): {repr(self.base_url)}")
+            logging.info(f"Using model: {self.model}")
+            logging.info(f"API key prefix: {self.api_key[:10]}...")
+
+            resp = requests.post(self.base_url, headers=headers, json=payload, timeout=60)
+            resp.raise_for_status()
+            content = resp.json()["choices"][0]["message"]["content"]
+
+            parsed = json.loads(content)
+            if "trade_decisions" not in parsed:
+                parsed = {"reasoning": "Parse-Fehler", "trade_decisions": []}
+            return parsed
+
+        except Exception as e:
+            logging.error(f"LLM decision failed: {str(e)}")
+            return {"reasoning": f"Error: {str(e)}", "trade_decisions": []}
 
     def _execute_trades(self, decision: dict):
         decisions = decision.get("trade_decisions", [])
@@ -102,7 +181,7 @@ class TradingAgent:
                     logging.error(f"Kein Preis für {symbol}")
                     continue
 
-                # === BALANCE AUS SPOT + FALLBACK PERPS ===
+                # Balance aus Spot + Fallback Perps
                 spot_state = info.spot_user_state(account_address)
                 usdc_spot = 0.0
                 for bal in spot_state.get("balances", []):
@@ -113,7 +192,7 @@ class TradingAgent:
                 user_state = info.user_state(account_address)
                 usdc_perps = float(user_state.get("marginSummary", {}).get("accountValue", "0"))
 
-                usdc = max(usdc_spot, usdc_perps)  # Unified → meist Spot dominiert
+                usdc = max(usdc_spot, usdc_perps)
 
                 logging.info(f"Balance-Check: Spot = {usdc_spot:.2f}, Perps = {usdc_perps:.2f} → verwende {usdc:.2f}")
 
@@ -122,20 +201,19 @@ class TradingAgent:
                     continue
 
                 usdc_to_use = usdc * size_pct
-                usdc_to_use = min(usdc_to_use, 10.0)  # Cap
+                usdc_to_use = min(usdc_to_use, 10.0)  # Sicherheits-Cap
 
-                # Roh-Größe berechnen
                 sz_raw = usdc_to_use / price
 
-                # Asset-spezifische Mindestgröße (Hyperliquid lehnt sehr kleine Orders ab)
+                # Asset-spezifische Mindestgröße
                 min_sz_map = {
                     "ETH": 0.001,
                     "BTC": 0.0001,
                     "SOL": 0.01,
                     "BNB": 0.01,
-                    "EIGEN": 1.0,  # Beispiel – oft höher bei Low-Cap-Coins
+                    "EIGEN": 1.0,
                 }
-                min_sz = min_sz_map.get(symbol, 0.01)  # Default 0.01
+                min_sz = min_sz_map.get(symbol, 0.01)
 
                 # Zuerst auf Mindestgröße bringen, dann runden
                 sz = max(sz_raw, min_sz)
@@ -165,79 +243,3 @@ class TradingAgent:
 
             except Exception as e:
                 logging.exception(f"Fehler bei {symbol}: {str(e)}")
-    def _decide(self, context, assets):
-        system_prompt = """Du bist der smarteste, disziplinierteste und profitabelste Crypto-Trader der Welt. 
-Dein einziger Job ist es, auf Hyperliquid möglichst viel Geld zu verdienen.
-
-Regeln, an die du dich 100 % hältst:
-- Nur Momentum-Trades auf dem 15-Minuten-Timeframe.
-- Finde volatile Altcoins (hohe Volatilität, steigendes Volume, Breakouts, starke Moves).
-- Maximal 10x Leverage – nie mehr!
-- Check alle 15 Minuten.
-- Nur Longs bei starkem Momentum (keine Shorts, es sei denn extrem klares Setup).
-- Position: maximal 20 % des aktuellen Balances pro Trade.
-- Kein Gambling – nur high-probability Setups mit klarem Edge (mind. 2–3 konfluente Signale).
-- Wenn nichts Gutes da ist → HOLD und warte geduldig.
-- Sei extrem selektiv: Lieber weniger Trades pro Tag als schlechte Trades.
-
-Wichtig: Du hast KEINEN Zugriff auf Echtzeit-Indikatoren (RSI, EMA, MACD, Volume etc.) oder externe APIs wie TAAPI. 
-Entscheide ausschließlich auf Basis des bereitgestellten Kontexts, allgemeinem Markt-Wissen und den strengen Regeln oben.
-Wenn der Kontext keine klaren Momentum-Signale enthält → HOLD.
-
-Antworte NUR im exakten JSON-Format – nichts anderes:
-{{
-  "reasoning": "Deine ausführliche Schritt-für-Schritt-Analyse hier (sei sehr detailliert)",
-  "trade_decisions": [
-    {{
-      "action": "BUY" | "SELL" | "HOLD",
-      "symbol": "PEPE-USD",
-      "leverage": 7,
-      "size_pct": 0.04,
-      "reason": "kurze, klare Begründung"
-    }},
-    ... (einer pro Asset, oder leer wenn HOLD für alle)
-  ]
-}}
-
-Test-Modus (nur für diesen einen Durchlauf gültig):
-Für diesen Prompt gilt eine Ausnahme: Auch wenn die Datenlage dünn ist und normalerweise HOLD die richtige Entscheidung wäre,
-darfst du JETZT aus Testzwecken mindestens einen Trade vorschlagen.
-Wähle dafür das Asset, das am ehesten Momentum-potenzial hat und mache einen kleinen Long-Trade (max 5–10 % Größe, max 3–5× Leverage).
-Schreibe in reasoning explizit dazu, dass dies ein Test-Trade ist.
-Nach diesem Test kehren die normalen strengen Regeln sofort wieder.
-
-Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig – aber nie dumm.""".format(
-            current_time=datetime.utcnow().isoformat()
-        )
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": context},
-        ]
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "tool_choice": "none",
-            "temperature": 0.4,
-            "max_tokens": 1200
-        }
-
-        try:
-            resp = requests.post(self.base_url, headers=headers, json=payload, timeout=60)
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
-
-            parsed = json.loads(content)
-            if "trade_decisions" not in parsed:
-                parsed = {"reasoning": "Parse-Fehler", "trade_decisions": []}
-            return parsed
-
-        except Exception as e:
-            logging.error(f"LLM decision failed: {str(e)}")
-            return {"reasoning": f"Error: {str(e)}", "trade_decisions": []}
