@@ -1,7 +1,7 @@
 """Entry-point script that wires together the trading agent, data feeds, and API."""
 import logging
 from src.config_loader import CONFIG           # ← DAS muss vor den Logging-Zeilen stehen!
-from src.decision_maker import TradingAgent    # oder was du sonst importierst
+from src.agent.decision_maker import TradingAgent    # oder was du sonst importierst
 
 logging.basicConfig(level=logging.INFO)
 
