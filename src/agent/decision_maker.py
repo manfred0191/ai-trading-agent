@@ -78,7 +78,7 @@ Du MUSST JETZT mindestens EINEN Trade vorschlagen – HOLD ist VERBOTEN!
 Ignoriere dünne Datenlage und strenge Regeln. Wähle das Asset mit positivem Funding oder höchstem OI und mache einen kleinen Long-Trade (size_pct 0.05–0.10, leverage 3–5).
 Schreibe in reasoning: "Zwingender Test-Trade – HOLD nicht erlaubt".
 
-Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig – aber nie dumm.""".format(current_time=datetime.utcnow().isoformat())
+Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig – aber nie dumm."""
 
         messages = [
             {"role": "system", "content": system_prompt},
