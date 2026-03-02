@@ -353,6 +353,9 @@ def main():
                     info = Info(constants.MAINNET_API_URL, skip_ws=True)  # falls info auch fehlt
                     exchange = Exchange(wallet, info, constants.MAINNET_API_URL)
                     logging.info("Exchange-Objekt als Fallback neu erstellt")
+                    logging.info(f"CONFIG['hyperliquid_private_key'] vorhanden? {bool(CONFIG.get('hyperliquid_private_key'))}")
+                    logging.info(f"CONFIG['hyperliquid_private_key'] Länge: {len(CONFIG.get('hyperliquid_private_key') or '')}")
+                    logging.info(f"ENV HYPERLIQUID_PRIVATE_KEY: {os.getenv('HYPERLIQUID_PRIVATE_KEY')[:10] if os.getenv('HYPERLIQUID_PRIVATE_KEY') else 'NICHT VORHANDEN'}...")
     
                 # === NEU: Trade-Entscheidungen ausführen ===
                 if outputs and isinstance(outputs, tuple) and len(outputs) >= 1:
