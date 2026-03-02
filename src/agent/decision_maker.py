@@ -107,6 +107,7 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
             content = resp.json()["choices"][0]["message"]["content"]
 
             parsed = json.loads(content)
+            logging.info("VERSION 55")
             logging.info("=== RAW LLM RESPONSE ===")
             logging.info(content)
             logging.info("=== PARSED TRADE DECISIONS ===")
@@ -174,10 +175,12 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
             logging.info("=== DEBUG: trade_decisions empfangen – Schleife startet ===")
             logging.info(f"Anzahl Decisions: {len(decisions)}")
             action = trade.get("action", "HOLD").upper()
+            logging.info(f"=== DEBUG: Action = {action}")
             if action not in ("BUY", "SELL"):
                 continue
 
             symbol = trade["symbol"].replace("-USD", "").replace("-USDT", "").upper()
+            logging.info(f"=== DEBUG: Symbol = {symbol}")
             is_buy = action == "BUY"
             size_pct = float(trade.get("size_pct", 0.05))
             leverage = int(trade.get("leverage", 5))
@@ -196,6 +199,7 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
                 logging.info("=== DEBUG: Starte Balance-Abfrage ===")
                 logging.info("=== DEBUG: Vor Spot-Abfrage ===")
                 spot_state = info.spot_user_state(account_address)
+                logging.info("=== DEBUG: spot_user_state abgeschlossen ===")
                 logging.info(f"Spot raw balances: {json.dumps(spot_state.get('balances', []), indent=2)}")
                 # usdc_spot = 0.0
                 for bal in spot_state.get("balances", []):
@@ -209,6 +213,7 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
                 usdc = max(usdc_spot, usdc_perps)
                 usdc_to_use = usdc * size_pct
                 usdc_to_use = min(usdc_to_use, 10.0)  # Sicherheits-Cap
+                 logging.info(f"=== DEBUG: usdc = {usdc}, usdc_to_use = {usdc_to_use}")
 
                 sz_raw = usdc_to_use / price
 
@@ -235,13 +240,14 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
 
                 logging.info(f"Trade-Plan: {action} {symbol} | sz = {sz:.8f} (raw {sz_raw:.8f}, min {min_sz}) | price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f}")
 
+                logging.info("=== DEBUG: Bereite market_open vor ===")
                 order_result = exchange.market_open(
                     name=symbol,
                     is_buy=is_buy,
                     sz=sz,
                     slippage=0.015
                 )                
-                
+                logging.info("=== DEBUG: market_open abgeschlossen ===")
                 logging.info(f"Spot raw balances: {json.dumps(spot_state.get('balances', []), indent=2)}")
                 logging.info(f"Balance-Check: Spot = {usdc_spot:.2f}, Perps = {usdc_perps:.2f} → verwende {usdc:.2f}")
 
