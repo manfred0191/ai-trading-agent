@@ -199,6 +199,40 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
                 usdc_perps = float(user_state.get("marginSummary", {}).get("accountValue", "0"))
 
                 usdc = max(usdc_spot, usdc_perps)
+                usdc_to_use = usdc * size_pct
+                usdc_to_use = min(usdc_to_use, 10.0)  # Sicherheits-Cap
+
+                sz_raw = usdc_to_use / price
+
+                # Asset-spezifische Mindestgröße (Hyperliquid lehnt sehr kleine Orders ab)
+                min_sz_map = {
+                    "ETH": 0.001,
+                    "BTC": 0.0001,
+                    "SOL": 0.01,
+                    "BNB": 0.01,
+                    "EIGEN": 1.0,      # ← entscheidend für dein aktuelles Asset!
+                }
+                min_sz = min_sz_map.get(symbol, 0.01)  # Default 0.01
+
+                # Mindestens min_sz verwenden (zwingend für "invalid size")
+                sz = max(sz_raw, min_sz)
+
+                # Präzision anpassen – EIGEN braucht meist 1 oder 0 Dezimalen
+                decimals = 1 if symbol == "EIGEN" else 5
+                sz = round(sz, decimals)
+
+                if sz < min_sz:
+                    logging.warning(f"Größe {sz:.8f} unter Minimum {min_sz} für {symbol} → überspringe")
+                    continue
+
+                logging.info(f"Trade-Plan: {action} {symbol} | sz = {sz:.8f} (raw {sz_raw:.8f}, min {min_sz}) | price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f}")
+
+                order_result = exchange.market_open(
+                    name=symbol,
+                    is_buy=is_buy,
+                    sz=sz,
+                    slippage=0.015
+                )                
                 
                 logging.info(f"Spot raw balances: {json.dumps(spot_state.get('balances', []), indent=2)}")
                 logging.info(f"Balance-Check: Spot = {usdc_spot:.2f}, Perps = {usdc_perps:.2f} → verwende {usdc:.2f}")
