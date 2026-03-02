@@ -320,6 +320,23 @@ def main():
 
             try:
                 outputs = agent.decide_trade(args.assets, context)
+                # === NEU: Trade-Entscheidungen ausführen ===
+                if outputs and isinstance(outputs, tuple) and len(outputs) >= 1:
+                    decisions, reasoning = outputs  # unpack, falls es (decisions, reasoning) zurückgibt
+                    logging.info(f"Trade-Entscheidungen erhalten: {len(decisions)} Trades")
+                    logging.info(f"Reasoning (gekürzt): {reasoning[:200]}..." if reasoning else "Kein Reasoning")
+
+                    if decisions:
+                        try:
+                            logging.info("Starte Ausführung der Trades...")
+                            _execute_trades(decisions, info, exchange, account_address)
+                            logging.info("Trades-Ausführung abgeschlossen")
+                        except Exception as exc:
+                            logging.exception(f"Fehler bei der Trade-Ausführung: {exc}")
+                    else:
+                        logging.info("Keine gültigen Trade-Entscheidungen → nichts zu tun")
+                else:
+                    logging.warning("outputs ungültig oder leer nach decide_trade → skip Ausführung")                
                 if not isinstance(outputs, dict):
                     add_event(f"Invalid output format (expected dict): {outputs}")
                     outputs = {}
@@ -339,6 +356,23 @@ def main():
                 context_retry = json.dumps(context_retry_payload, default=json_default)
                 try:
                     outputs = agent.decide_trade(args.assets, context_retry)
+                    # === NEU: Trade-Entscheidungen ausführen ===
+                    if outputs and isinstance(outputs, tuple) and len(outputs) >= 1:
+                        decisions, reasoning = outputs  # unpack, falls es (decisions, reasoning) zurückgibt
+                        logging.info(f"Trade-Entscheidungen erhalten: {len(decisions)} Trades")
+                        logging.info(f"Reasoning (gekürzt): {reasoning[:200]}..." if reasoning else "Kein Reasoning")
+
+                        if decisions:
+                            try:
+                                logging.info("Starte Ausführung der Trades...")
+                                _execute_trades(decisions, info, exchange, account_address)
+                                logging.info("Trades-Ausführung abgeschlossen")
+                            except Exception as exc:
+                                logging.exception(f"Fehler bei der Trade-Ausführung: {exc}")
+                        else:
+                            logging.info("Keine gültigen Trade-Entscheidungen → nichts zu tun")
+                    else:
+                        logging.warning("outputs ungültig oder leer nach decide_trade → skip Ausführung")                    
                     if not isinstance(outputs, dict):
                         add_event(f"Retry invalid format: {outputs}")
                         outputs = {}
