@@ -73,7 +73,7 @@ Antworte NUR im exakten JSON-Format – nichts anderes:
 
 Test-Modus (nur für diesen einen Durchlauf gültig):
 Für diesen Prompt gilt eine Ausnahme: Auch wenn die Datenlage dünn ist und normalerweise HOLD die richtige Entscheidung wäre,
-darfst du JETZT aus Testzwecken mindestens einen Trade vorschlagen.
+MUSST du JETZT aus Testzwecken mindestens einen Trade vorschlagen (kein HOLD!).
 Wähle dafür das Asset, das am ehesten Momentum-potenzial hat und mache einen kleinen Long-Trade (max 5–10 % Größe, max 3–5× Leverage).
 Schreibe in reasoning explizit dazu, dass dies ein Test-Trade ist.
 Nach diesem Test kehren die normalen strengen Regeln sofort wieder.
@@ -193,7 +193,8 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
                 usdc_perps = float(user_state.get("marginSummary", {}).get("accountValue", "0"))
 
                 usdc = max(usdc_spot, usdc_perps)
-
+                
+                logging.info(f"Spot raw balances: {json.dumps(spot_state.get('balances', []), indent=2)}")
                 logging.info(f"Balance-Check: Spot = {usdc_spot:.2f}, Perps = {usdc_perps:.2f} → verwende {usdc:.2f}")
 
                 if usdc <= 0:
