@@ -1,5 +1,13 @@
 """Entry-point script that wires together the trading agent, data feeds, and API."""
 
+import logging
+logging.basicConfig(level=logging.INFO)
+
+logging.info("=== BOT START ===")
+logging.info(f"Verwendetes Modell: {CONFIG.get('llm_model', 'NICHT GESETZT')}")
+logging.info(f"API-Key Prefix: {CONFIG.get('openrouter_api_key', 'KEIN KEY')[:10]}...")
+logging.info("Lade Config abgeschlossen – starte Loop...")
+
 import sys
 import argparse
 import pathlib
