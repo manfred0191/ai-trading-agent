@@ -120,6 +120,8 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
             return {"reasoning": f"Error: {str(e)}", "trade_decisions": []}
 
     def _execute_trades(self, decision: dict):
+        logging.info("=== DEBUG: _execute_trades wurde aufgerufen – Decision vorhanden ===")
+        logging.info(f"Trade decisions count: {len(decisions)}")
         decisions = decision.get("trade_decisions", [])
         if not decisions:
             logging.info("Keine Trades vorgeschlagen → nichts zu tun")
@@ -192,8 +194,10 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
 
                 # Balance aus Spot + Fallback Perps
                 logging.info("=== DEBUG: Starte Balance-Abfrage ===")
+                logging.info("=== DEBUG: Vor Spot-Abfrage ===")
                 spot_state = info.spot_user_state(account_address)
-                usdc_spot = 0.0
+                logging.info(f"Spot raw balances: {json.dumps(spot_state.get('balances', []), indent=2)}")
+                # usdc_spot = 0.0
                 for bal in spot_state.get("balances", []):
                     if bal.get("coin") == "USDC":
                         usdc_spot = float(bal.get("total", "0"))
