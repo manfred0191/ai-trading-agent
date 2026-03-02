@@ -399,6 +399,27 @@ def main():
                         if decisions:
                             try:
                                 logging.info("Starte Ausführung der Trades...")
+                                # Sicherstellen, dass info und exchange existieren (Fallback)
+                                if 'info' not in locals() or info is None:
+                                    logging.warning("info nicht definiert → erstelle Fallback")
+                                    from hyperliquid.info import Info
+                                    from hyperliquid.utils import constants
+                                    info = Info(constants.MAINNET_API_URL, skip_ws=True)  # oder TESTNET, falls du testest
+
+                                if 'exchange' not in locals() or exchange is None:
+                                    logging.warning("exchange nicht definiert → erstelle Fallback")
+                                    from hyperliquid.exchange import Exchange
+                                    from eth_account import Account
+                                    private_key = CONFIG.get('private_key')  # oder os.getenv('PRIVATE_KEY')
+                                    if not private_key:
+                                        logging.error("Kein private_key in CONFIG → kann exchange nicht erstellen")
+                                        return  # oder raise, je nach Bedarf
+                                    wallet = Account.from_key(private_key)
+                                    exchange = Exchange(wallet, info, constants.MAINNET_API_URL)
+
+                                account_address = wallet.address if 'wallet' in locals() else "0x1249911bE0E95d2E1eC625CF32D44b5898d33dCB"  # Fallback-Adresse
+
+                                # Jetzt sicher aufrufen                                
                                 _execute_trades(decisions, info, exchange, account_address)
                                 logging.info("Trades-Ausführung abgeschlossen")
                             except Exception as exc:
