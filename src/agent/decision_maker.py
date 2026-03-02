@@ -159,6 +159,7 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
 
         try:
             exchange = Exchange(wallet, base_url=base_url, account_address=account_address)
+            logging.info("=== DEBUG: Exchange initialisiert – gehe in Trade-Schleife ===")
             logging.info("=== DEBUG: Exchange erfolgreich initialisiert ===")
             logging.info(f"Base-URL: {base_url}")
             logging.info(f"Account-Adresse: {account_address}")
@@ -168,6 +169,8 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
             return
 
         for trade in decisions:
+            logging.info("=== DEBUG: trade_decisions empfangen – Schleife startet ===")
+            logging.info(f"Anzahl Decisions: {len(decisions)}")
             action = trade.get("action", "HOLD").upper()
             if action not in ("BUY", "SELL"):
                 continue
@@ -188,6 +191,7 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
                     continue
 
                 # Balance aus Spot + Fallback Perps
+                logging.info("=== DEBUG: Starte Balance-Abfrage ===")
                 spot_state = info.spot_user_state(account_address)
                 usdc_spot = 0.0
                 for bal in spot_state.get("balances", []):
