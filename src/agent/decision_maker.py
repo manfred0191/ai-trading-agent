@@ -107,24 +107,23 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
             response = requests.post(self.base_url, headers=headers, json=data, timeout=30)
             response.raise_for_status()
         except requests.exceptions.HTTPError as e:
-            status = e.response.status_code if e.response else 0
-            if status == 429:
+            if e.response and e.response.status_code == 429:
                 retry_after = int(e.response.headers.get('retry-after', 60))
-                logging.warning(f"Groq Rate-Limit 429 – skip this cycle (retry-after: {retry_after}s)")
+                logging.warning(f"Groq 429 – skip this cycle (retry-after wäre {retry_after}s)")
                 return [], "Rate limit hit – no decision this cycle"
-            elif status >= 500:
-                logging.error(f"Groq server error {status} – skipping")
-                return [], f"Groq server error {status}"
+            elif e.response:
+                logging.error(f"Groq HTTP error {e.response.status_code} – {str(e)}")
+                return [], f"Groq error {e.response.status_code}"
             else:
-                logging.error(f"Unexpected HTTP error: {status} – {str(e)}")
-                raise
+                logging.error(f"Groq connection error – {str(e)}")
+                return [], "Connection error"
         except requests.exceptions.Timeout:
-            logging.error("Groq request timed out – skipping")
+            logging.error("Groq timeout – skipping")
             return [], "Timeout"
         except Exception as e:
             logging.exception(f"LLM request failed: {str(e)}")
             return [], f"Request error: {str(e)}"
-
+    
         content = response.json()["choices"][0]["message"]["content"]
         logging.info("=== RAW LLM RESPONSE ===")
         logging.info(content)
