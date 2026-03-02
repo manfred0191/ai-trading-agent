@@ -1,4 +1,5 @@
 """Decision-making agent for momentum trading on volatile altcoins."""
+
 import os
 import logging
 import http.client as http_client
@@ -33,7 +34,7 @@ class TradingAgent:
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
 
     def decide_trade(self, assets, context):
-        """Decide for multiple assets in one LLM call."""
+        """Decide actions for multiple assets in one LLM call."""
         return self._decide(context, assets=assets)
 
     def _decide(self, context, assets):
@@ -57,19 +58,19 @@ Entscheide ausschließlich auf Basis des bereitgestellten Kontexts, allgemeinem 
 Wenn der Kontext keine klaren Momentum-Signale enthält → HOLD.
 
 Antworte NUR im exakten JSON-Format – nichts anderes:
-{{
+{
   "reasoning": "Deine ausführliche Schritt-für-Schritt-Analyse hier (sei sehr detailliert)",
   "trade_decisions": [
-    {{
+    {
       "action": "BUY" | "SELL" | "HOLD",
       "symbol": "PEPE-USD",
       "leverage": 7,
       "size_pct": 0.04,
       "reason": "kurze, klare Begründung"
-    }},
+    },
     ... (einer pro Asset, oder leer wenn HOLD für alle)
   ]
-}}
+}
 
 Test-Modus (Zwingend für diesen Durchlauf):
 Test-Modus (Zwingend!):
@@ -89,212 +90,128 @@ Ziel: Maximaler Profit bei minimalem Drawdown. Sei kalt, rational und gierig –
             "Content-Type": "application/json",
         }
 
-        payload = {
+        data = {
             "model": self.model,
             "messages": messages,
             "tool_choice": "none",
             "temperature": 0.4,
-            "max_tokens": 1200
+            "max_tokens": 1200,
         }
 
+        logging.info(f"Full LLM endpoint URL (repr): {repr(self.base_url)}")
+        logging.info(f"Using model: {self.model}")
+        logging.info(f"API key prefix: {self.api_key[:10]}...")
+
+        response = requests.post(self.base_url, headers=headers, json=data)
+        response.raise_for_status()
+
+        content = response.json()["choices"][0]["message"]["content"]
+        logging.info("=== RAW LLM RESPONSE ===")
+        logging.info(content)
+
         try:
-            logging.info(f"Full LLM endpoint URL (repr): {repr(self.base_url)}")
-            logging.info(f"Using model: {self.model}")
-            logging.info(f"API key prefix: {self.api_key[:10]}...")
+            decision = json.loads(content)
+            decisions = decision.get("trade_decisions", [])
+            reasoning = decision.get("reasoning", "Kein Reasoning verfügbar")
 
-            resp = requests.post(self.base_url, headers=headers, json=payload, timeout=60)
-            resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
-
-            parsed = json.loads(content)
-            logging.info("VERSION 55")
-            logging.info("=== RAW LLM RESPONSE ===")
-            logging.info(content)
             logging.info("=== PARSED TRADE DECISIONS ===")
-            logging.info(json.dumps(parsed.get("trade_decisions", []), indent=2))
-            if "trade_decisions" not in parsed:
-                parsed = {"reasoning": "Parse-Fehler", "trade_decisions": []}
-            return parsed
+            logging.info(json.dumps(decisions, indent=2))
 
-        except Exception as e:
-            logging.error(f"LLM decision failed: {str(e)}")
-            return {"reasoning": f"Error: {str(e)}", "trade_decisions": []}
+            logging.info(f"LLM reasoning summary: {reasoning[:200]}..." if len(reasoning) > 200 else reasoning)
 
-    def _execute_trades(self, decision: dict):
-        logging.info("=== DEBUG: _execute_trades wurde aufgerufen – Decision vorhanden ===")
-        logging.info(f"Trade decisions count: {len(decisions)}")
-        decisions = decision.get("trade_decisions", [])
-        if not decisions:
-            logging.info("Keine Trades vorgeschlagen → nichts zu tun")
-            return
+            return decisions, reasoning
+        except json.JSONDecodeError as e:
+            logging.error(f"JSON-Parse-Fehler: {str(e)}")
+            logging.error(f"Raw-Content: {content}")
+            return [], "Parse-Fehler"
 
-        # Sicherheitsbremse
-        if os.getenv("DRY_RUN", "true").lower() in ("true", "1", "yes"):
-            logging.warning("DRY_RUN aktiv → KEINE echten Orders!")
-            for trade in decisions:
-                logging.info(f"[DRY] Würde ausführen: {trade}")
-            return
-
-        hl_env = os.getenv("HYPERLIQUID_ENVIRONMENT", "mainnet")
-        base_url = constants.TESTNET_API_URL if hl_env == "testnet" else constants.MAINNET_API_URL
-
-        private_key = os.getenv("HYPERLIQUID_PRIVATE_KEY")
-        account_address = os.getenv("HYPERLIQUID_ACCOUNT_ADDRESS")
-
-        if not private_key:
-            logging.error("HYPERLIQUID_PRIVATE_KEY fehlt")
-            return
-
-        if not private_key.startswith("0x"):
-            private_key = "0x" + private_key
-
-        try:
-            wallet = Account.from_key(private_key)
-        except ValueError as e:
-            logging.error(f"Ungültiger Private Key: {e}")
-            return
-
-        if not account_address:
-            account_address = wallet.address
-
-        logging.info(f"Wallet-Adresse: {wallet.address}")
-        logging.info(f"Verwendete Account-Adresse: {account_address}")
-
-        try:
-            exchange = Exchange(wallet, base_url=base_url, account_address=account_address)
-            logging.info("=== DEBUG: Exchange initialisiert – gehe in Trade-Schleife ===")
-            logging.info("=== DEBUG: Exchange erfolgreich initialisiert ===")
-            logging.info(f"Base-URL: {base_url}")
-            logging.info(f"Account-Adresse: {account_address}")
-            logging.info(f"Hyperliquid Exchange initialisiert ({hl_env})")
-        except Exception as e:
-            logging.error(f"Exchange-Initialisierung fehlgeschlagen: {e}")
-            return
-
+def _execute_trades(decisions, info, exchange, account_address):
+    """Execute trades based on decisions."""
+    try:
         for trade in decisions:
-            logging.info("=== DEBUG: trade_decisions empfangen – Schleife startet ===")
-            logging.info(f"Anzahl Decisions: {len(decisions)}")
+            logging.info("=== DEBUG: Trade-Schleife gestartet – Trade: " + str(trade))
+
             action = trade.get("action", "HOLD").upper()
             logging.info(f"=== DEBUG: Action = {action}")
+
             if action not in ("BUY", "SELL"):
+                logging.info("=== DEBUG: Ungültige Action – skip")
                 continue
 
             symbol = trade["symbol"].replace("-USD", "").replace("-USDT", "").upper()
             logging.info(f"=== DEBUG: Symbol = {symbol}")
+
+            logging.info("=== DEBUG: Vor spot_user_state ===")
+            spot_state = info.spot_user_state(account_address)
+            logging.info("=== DEBUG: spot_user_state abgeschlossen ===")
+
+            usdc_spot = float(next((b["sz"] for b in spot_state.get("balances", []) if b["token"] == "USDC"), 0.0))
+            usdc_perps = float(info.user_state(account_address)["withdrawable"])
+            usdc = usdc_spot + usdc_perps
+
+            logging.info(f"Spot raw balances: {json.dumps(spot_state.get('balances', []), indent=2)}")
+            logging.info(f"Balance-Check: Spot = {usdc_spot:.2f}, Perps = {usdc_perps:.2f} → verwende {usdc:.2f}")
+
+            if usdc <= 0:
+                logging.error("Kein USDC-Balance verfügbar (weder Spot noch Perps)")
+                continue
+
+            size_pct = min(trade.get("size_pct", 0.05), 0.20)
+            leverage = min(trade.get("leverage", 3), 10)
+
+            mids = info.all_mids()
+            price = float(mids.get(symbol, 0.0))
+
+            if price <= 0:
+                logging.error(f"Kein Preis für {symbol} verfügbar")
+                continue
+
             is_buy = action == "BUY"
-            size_pct = float(trade.get("size_pct", 0.05))
-            leverage = int(trade.get("leverage", 5))
 
-            try:
-                exchange.update_leverage(leverage, symbol)
+            usdc_to_use = usdc * size_pct
+            usdc_to_use = min(usdc_to_use, 10.0)  # Sicherheits-Cap
 
-                info = Info(base_url, skip_ws=True)
-                mids = info.all_mids()
-                price = float(mids.get(symbol, "0"))
-                if price <= 0:
-                    logging.error(f"Kein Preis für {symbol}")
-                    continue
+            logging.info(f"=== DEBUG: usdc = {usdc}, usdc_to_use = {usdc_to_use}")
 
-                # Balance aus Spot + Fallback Perps
-                logging.info("=== DEBUG: Starte Balance-Abfrage ===")
-                logging.info("=== DEBUG: Vor Spot-Abfrage ===")
-                spot_state = info.spot_user_state(account_address)
-                logging.info("=== DEBUG: spot_user_state abgeschlossen ===")
-                logging.info(f"Spot raw balances: {json.dumps(spot_state.get('balances', []), indent=2)}")
-                # usdc_spot = 0.0
-                for bal in spot_state.get("balances", []):
-                    if bal.get("coin") == "USDC":
-                        usdc_spot = float(bal.get("total", "0"))
-                        break
+            sz_raw = usdc_to_use / price
 
-                user_state = info.user_state(account_address)
-                usdc_perps = float(user_state.get("marginSummary", {}).get("accountValue", "0"))
+            # Asset-spezifische Mindestgröße
+            min_sz_map = {
+                "ETH": 0.001,
+                "BTC": 0.0001,
+                "SOL": 0.01,
+                "BNB": 0.01,
+                "EIGEN": 1.0,
+            }
+            min_sz = min_sz_map.get(symbol, 0.01)
 
-                usdc = max(usdc_spot, usdc_perps)
-                usdc_to_use = usdc * size_pct
-                usdc_to_use = min(usdc_to_use, 10.0)  # Sicherheits-Cap
-                 logging.info(f"=== DEBUG: usdc = {usdc}, usdc_to_use = {usdc_to_use}")
+            # Zuerst auf Mindestgröße bringen, dann runden
+            sz = max(sz_raw, min_sz)
 
-                sz_raw = usdc_to_use / price
+            # Präzision: 5 Dezimalstellen sind für die meisten Assets sicher
+            sz = round(sz, 5)
 
-                # Asset-spezifische Mindestgröße (Hyperliquid lehnt sehr kleine Orders ab)
-                min_sz_map = {
-                    "ETH": 0.001,
-                    "BTC": 0.0001,
-                    "SOL": 0.01,
-                    "BNB": 0.01,
-                    "EIGEN": 1.0,      # ← entscheidend für dein aktuelles Asset!
-                }
-                min_sz = min_sz_map.get(symbol, 0.01)  # Default 0.01
+            if sz < min_sz:
+                logging.warning(f"Größe {sz:.8f} unter Minimum {min_sz} für {symbol} → überspringe")
+                continue
 
-                # Mindestens min_sz verwenden (zwingend für "invalid size")
-                sz = max(sz_raw, min_sz)
+            logging.info(f"Trade-Plan: {action} {symbol} | sz = {sz:.8f} (min {min_sz}) | price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f}")
 
-                # Präzision anpassen – EIGEN braucht meist 1 oder 0 Dezimalen
-                decimals = 1 if symbol == "EIGEN" else 5
-                sz = round(sz, decimals)
+            logging.info("=== DEBUG: Bereite market_open vor ===")
+            order_result = exchange.market_open(
+                name=symbol,
+                is_buy=is_buy,
+                sz=sz,
+                slippage=0.015
+            )
+            logging.info("=== DEBUG: market_open abgeschlossen ===")
 
-                if sz < min_sz:
-                    logging.warning(f"Größe {sz:.8f} unter Minimum {min_sz} für {symbol} → überspringe")
-                    continue
+            logging.info(f"Order-Antwort: {json.dumps(order_result, indent=2)}")
 
-                logging.info(f"Trade-Plan: {action} {symbol} | sz = {sz:.8f} (raw {sz_raw:.8f}, min {min_sz}) | price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f}")
+            if order_result.get("status") == "ok":
+                logging.info(f"✅ Erfolgreich: {action} {symbol}")
+            else:
+                logging.error(f"Order fehlgeschlagen: {order_result}")
 
-                logging.info("=== DEBUG: Bereite market_open vor ===")
-                order_result = exchange.market_open(
-                    name=symbol,
-                    is_buy=is_buy,
-                    sz=sz,
-                    slippage=0.015
-                )                
-                logging.info("=== DEBUG: market_open abgeschlossen ===")
-                logging.info(f"Spot raw balances: {json.dumps(spot_state.get('balances', []), indent=2)}")
-                logging.info(f"Balance-Check: Spot = {usdc_spot:.2f}, Perps = {usdc_perps:.2f} → verwende {usdc:.2f}")
-
-                if usdc <= 0:
-                    logging.error("Kein USDC-Balance verfügbar (weder Spot noch Perps)")
-                    continue
-
-                usdc_to_use = usdc * size_pct
-                usdc_to_use = min(usdc_to_use, 10.0)  # Sicherheits-Cap
-
-                sz_raw = usdc_to_use / price
-
-                # Asset-spezifische Mindestgröße
-                min_sz_map = {
-                    "ETH": 0.001,
-                    "BTC": 0.0001,
-                    "SOL": 0.01,
-                    "BNB": 0.01,
-                    "EIGEN": 1.0,
-                }
-                min_sz = min_sz_map.get(symbol, 0.01)
-
-                # Zuerst auf Mindestgröße bringen, dann runden
-                sz = max(sz_raw, min_sz)
-
-                # Präzision: 5 Dezimalstellen sind für die meisten Assets sicher
-                sz = round(sz, 5)
-
-                if sz < min_sz:
-                    logging.warning(f"Größe {sz:.8f} unter Minimum {min_sz} für {symbol} → überspringe")
-                    continue
-
-                logging.info(f"Trade-Plan: {action} {symbol} | sz = {sz:.8f} (min {min_sz}) | price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f}")
-
-                order_result = exchange.market_open(
-                    name=symbol,
-                    is_buy=is_buy,
-                    sz=sz,
-                    slippage=0.015
-                )
-
-                logging.info(f"Order-Antwort: {json.dumps(order_result, indent=2)}")
-
-                if order_result.get("status") == "ok":
-                    logging.info(f"✅ Erfolgreich: {action} {symbol}")
-                else:
-                    logging.error(f"Order fehlgeschlagen: {order_result}")
-
-            except Exception as e:
-                logging.exception(f"Fehler bei {symbol}: {str(e)}")
+    except Exception as e:
+        logging.exception(f"Fehler bei {symbol}: {str(e)}")
