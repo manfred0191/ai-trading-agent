@@ -1,13 +1,15 @@
 """Entry-point script that wires together the trading agent, data feeds, and API."""
-
 import logging
+from src.config_loader import CONFIG           # ← DAS muss vor den Logging-Zeilen stehen!
+from src.decision_maker import TradingAgent    # oder was du sonst importierst
+
 logging.basicConfig(level=logging.INFO)
 
-logging.info("=== BOT START ===")
-logging.info(f"Verwendetes Modell: {CONFIG.get('llm_model', 'NICHT GESETZT')}")
-logging.info(f"API-Key Prefix: {CONFIG.get('openrouter_api_key', 'KEIN KEY')[:10]}...")
-logging.info("Lade Config abgeschlossen – starte Loop...")
-
+if __name__ == "__main__":
+    logging.info("=== BOT START ===")
+    logging.info(f"Verwendetes Modell: {CONFIG.get('llm_model', 'NICHT GESETZT')}")
+    logging.info(f"API-Key Prefix: {CONFIG.get('openrouter_api_key', 'KEIN KEY')[:10]}...")
+    
 import sys
 import argparse
 import pathlib
