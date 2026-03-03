@@ -184,7 +184,7 @@ def _execute_trades(decisions, info, exchange, account_address):
             # === ENDE HACK ===
 
             # size_pct = min(trade.get("size_pct", 0.05), 0.20)
-            size_pct = min(trade.get("size_pct", 0.10), 0.20)  # 10 % von 1000 = 100 USDC
+            size_pct = min(trade.get("size_pct", 0.15), 0.20)  # 10 % von 1000 = 100 USDC
             leverage = min(trade.get("leverage", 3), 10)
 
             mids = info.all_mids()
@@ -231,6 +231,13 @@ def _execute_trades(decisions, info, exchange, account_address):
                 logging.warning(f"Größe {sz:.8f} unter Minimum {min_sz} für {symbol} → überspringe")
                 continue
 
+            if symbol == "EIGEN":
+                sz = round(sz, 1)  # 1 Dezimalstelle für EIGEN
+            elif symbol == "SOL":
+                sz = round(sz, 2)
+            else:
+                sz = round(sz, 5)
+    
             logging.info(f"Trade-Plan: {action} {symbol} | sz = {sz:.8f} (min {min_sz}) | price ≈ {price:.2f} | usdc ≈ {usdc_to_use:.2f}")
 
             logging.info("=== DEBUG: Bereite market_open vor ===")
@@ -240,9 +247,9 @@ def _execute_trades(decisions, info, exchange, account_address):
             min_notional = 10.0
 
             if notional < min_notional:
-                logging.warning(f"Notional zu niedrig ({notional:.2f} < {min_notional}) → boost size")
+                logging.warning(f"Notional zu niedrig ({notional:.2f} < {min_notional}) → boost")
                 sz_boost = (min_notional / (price * leverage)) * 1.2  # 20% Puffer
-                sz = round(max(sz, sz_boost), precision)
+                sz = round(max(sz, sz_boost), 1 if symbol == "EIGEN" else 5)
                 logging.info(f"Boost: sz auf {sz} (notional ≈ {sz*price*leverage:.2f})")
 
             if required_margin > usdc:
