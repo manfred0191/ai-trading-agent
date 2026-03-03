@@ -183,7 +183,8 @@ def _execute_trades(decisions, info, exchange, account_address):
                 usdc_perps = 0.0
             # === ENDE HACK ===
 
-            size_pct = min(trade.get("size_pct", 0.05), 0.20)
+            # size_pct = min(trade.get("size_pct", 0.05), 0.20)
+            size_pct = min(trade.get("size_pct", 0.15), 0.20)  # 10 % von 1000 = 100 USDC
             leverage = min(trade.get("leverage", 3), 10)
 
             mids = info.all_mids()
