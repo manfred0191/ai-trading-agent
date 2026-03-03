@@ -222,10 +222,8 @@ def _execute_trades(decisions, info, exchange, account_address):
                 "SOL": 2,
                 "BNB": 3,
                 "EIGEN": 1,
-                # Default für andere
             }
             precision = precision_map.get(symbol, 5)
-
             sz = round(sz, precision)
 
             if sz < min_sz:
@@ -237,6 +235,14 @@ def _execute_trades(decisions, info, exchange, account_address):
             logging.info("=== DEBUG: Bereite market_open vor ===")
             required_margin = usdc_to_use / leverage
             logging.info(f"Benötigte Margin für {leverage}x: ≈ {required_margin:.2f} USDC")
+            notional = sz * price * leverage
+            min_notional = 10.0
+
+            if notional < min_notional:
+                logging.warning(f"Notional zu niedrig ({notional:.2f} < {min_notional}) → erhöhe size auf Min")
+                sz_min = min_notional / (price * leverage)
+                sz = max(sz, round(sz_min + 0.001, 5))  # + Puffer
+                logging.info(f"Auto-Anpassung: sz auf {sz} erhöht")
 
             if required_margin > usdc:
                 logging.warning(f"Margin zu niedrig ({required_margin:.2f} > {usdc:.2f}) → skip oder reduziere Leverage")
