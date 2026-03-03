@@ -177,14 +177,14 @@ def _execute_trades(decisions, info, exchange, account_address):
 
             # === TEMPORÄRER TEST-HACK – BALANCE 0 UMGEHEN ===
             if usdc <= 0:
-                logging.warning("=== TEST-HACK AKTIV: Balance war 0 → setze Fake-USDC = 100 für Simulation ===")
-                usdc = 100.0
-                usdc_spot = 100.0
+                logging.warning("=== TEST-HACK AKTIV: Balance war 0 → setze Fake-USDC = 1000 ===")
+                usdc = 1000.0
+                usdc_spot = 1000.0
                 usdc_perps = 0.0
             # === ENDE HACK ===
 
             # size_pct = min(trade.get("size_pct", 0.05), 0.20)
-            size_pct = min(trade.get("size_pct", 0.15), 0.20)  # 10 % von 1000 = 100 USDC
+            size_pct = min(trade.get("size_pct", 0.10), 0.20)  # 10 % von 1000 = 100 USDC
             leverage = min(trade.get("leverage", 3), 10)
 
             mids = info.all_mids()
@@ -222,7 +222,7 @@ def _execute_trades(decisions, info, exchange, account_address):
                 "ETH": 4,
                 "SOL": 2,
                 "BNB": 3,
-                "EIGEN": 1,
+                "EIGEN": 1,  # ← Wichtig für EIGEN
             }
             precision = precision_map.get(symbol, 5)
             sz = round(sz, precision)
@@ -240,10 +240,10 @@ def _execute_trades(decisions, info, exchange, account_address):
             min_notional = 10.0
 
             if notional < min_notional:
-                logging.warning(f"Notional zu niedrig ({notional:.2f} < {min_notional}) → erhöhe size auf Min")
-                sz_min = min_notional / (price * leverage)
-                sz = max(sz, round(sz_min + 0.001, 5))  # + Puffer
-                logging.info(f"Auto-Anpassung: sz auf {sz} erhöht")
+                logging.warning(f"Notional zu niedrig ({notional:.2f} < {min_notional}) → boost size")
+                sz_boost = (min_notional / (price * leverage)) * 1.2  # 20% Puffer
+                sz = round(max(sz, sz_boost), precision)
+                logging.info(f"Boost: sz auf {sz} (notional ≈ {sz*price*leverage:.2f})")
 
             if required_margin > usdc:
                 logging.warning(f"Margin zu niedrig ({required_margin:.2f} > {usdc:.2f}) → skip oder reduziere Leverage")
